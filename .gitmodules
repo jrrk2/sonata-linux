@@ -1,0 +1,36 @@
+[submodule "sonata-system"]
+	path = sonata-system
+	url = https://github.com/jrrk2/sonata-system.git
+[submodule "linux-on-litex-vexriscv"]
+	path = linux-on-litex-vexriscv
+	url = https://github.com/litex-hub/linux-on-litex-vexriscv.git
+[submodule "litex"]
+	path = litex
+	url = https://github.com/enjoy-digital/litex.git
+[submodule "litex-boards"]
+	path = litex-boards
+	url = https://github.com/litex-hub/litex-boards.git
+[submodule "migen"]
+	path = migen
+	url = https://git.m-labs.hk/M-Labs/migen.git
+[submodule "litespi"]
+	path = litespi
+	url = https://github.com/litex-hub/litespi.git
+[submodule "litesdcard"]
+	path = litesdcard
+	url = https://github.com/enjoy-digital/litesdcard.git
+[submodule "litedram"]
+	path = litedram
+	url = https://github.com/enjoy-digital/litedram.git
+[submodule "pythondata-cpu-vexriscv-smp"]
+	path = pythondata-cpu-vexriscv-smp
+	url = https://github.com/litex-hub/pythondata-cpu-vexriscv-smp.git
+[submodule "pythondata-software-picolibc"]
+	path = pythondata-software-picolibc
+	url = https://github.com/litex-hub/pythondata-software-picolibc.git
+[submodule "pythondata-software-compiler_rt"]
+	path = pythondata-software-compiler_rt
+	url = https://github.com/litex-hub/pythondata-software-compiler_rt.git
+[submodule "buildroot"]
+	path = buildroot
+	url = https://github.com/buildroot/buildroot.git

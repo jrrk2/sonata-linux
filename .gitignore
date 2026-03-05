@@ -1,0 +1,5 @@
+out/
+linux-xip/
+opensbi-xip/
+*.pyc
+__pycache__/
