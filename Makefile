@@ -48,7 +48,7 @@ OPENSBI_SRC  := $(TOP)/opensbi-xip
 # Buildroot output — 'make setup' builds buildroot using the buildroot submodule
 # with the linux-on-litex-vexriscv overlay (patches, configs).
 BR_OUTPUT    := $(BUILDROOT)/output
-CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
+CROSS        := /home/jonathan/litex-sonata/buildroot/output/host/bin/riscv32-buildroot-linux-musl-
 
 # Config and source from sonata-system
 CONFIG_DIR   := $(SONATA)/linux/config
@@ -66,19 +66,18 @@ OPENSBI_FW_JUMP  := $(OPENSBI_SRC)/build/platform/$(OPENSBI_PLATFORM)/firmware/f
 
 # ── Flash layout ──────────────────────────────────────────────────────
 
-OPENSBI_OFFSET := 0x780000
-ROOTFS_OFFSET  := 0x800000
+OPENSBI_OFFSET := 0x540000
+ROOTFS_OFFSET  := 0x5C0000
 
 # ── Output files ──────────────────────────────────────────────────────
 
 XIPIMAGE     := $(LINUX_SRC)/arch/riscv/boot/xipImage
-ROOTFS       := $(shell if [ -f $(BR_OUTPUT)/images/rootfs.romfs ]; then \
-                    echo $(BR_OUTPUT)/images/rootfs.romfs; \
-                elif [ -f $(OUT)/rootfs.romfs ]; then \
-                    echo $(OUT)/rootfs.romfs; fi)
+BR_TARGET    := $(BR_OUTPUT)/target
+ROOTFS_ROMFS := $(OUT)/rootfs.romfs
+ROOTFS       := $(ROOTFS_ROMFS)
 
 .PHONY: all setup setup-buildroot setup-kernel setup-opensbi \
-        kernel opensbi dtb flashxip sdcard bitstream \
+        kernel opensbi dtb flashxip sdcard bitstream rootfs \
         clean kernel-clean opensbi-clean help
 
 all: $(OUT)/flashxip.bin $(OUT)/rv32.dtb $(OUT)/xipjump.bin $(OUT)/boot.json
@@ -94,6 +93,7 @@ help:
 	@echo ""
 	@echo "Build targets:"
 	@echo "  make                 Build flashxip.bin + SD card boot files"
+	@echo "  make rootfs          Generate rootfs.romfs from buildroot target"
 	@echo "  make bitstream       Build FPGA bitstream (requires Vivado)"
 	@echo "  make sdcard          Copy all files to $(SDCARD_OUT)"
 	@echo "  make kernel          Rebuild just the kernel"
@@ -128,7 +128,7 @@ setup-buildroot:
 		$(MAKE) -j$$(nproc)
 	@echo "=== Buildroot complete ==="
 	@echo "Toolchain: $(CROSS)gcc"
-	@ls -la $(BR_OUTPUT)/images/rootfs.romfs
+	@echo "Target dir: $(BR_TARGET)"
 
 setup-kernel:
 	@echo "=== Setting up kernel tree ==="
@@ -140,18 +140,14 @@ setup-kernel:
 	else \
 		echo "$(LINUX_SRC) already exists, skipping."; \
 	fi
-	@# Copy rootfs for later use
-	@if [ -f $(BR_OUTPUT)/images/rootfs.romfs ]; then \
-		mkdir -p $(OUT); \
-		cp $(BR_OUTPUT)/images/rootfs.romfs $(OUT)/rootfs.romfs; \
-	fi
+	@echo "Run 'make rootfs' to generate rootfs.romfs from buildroot target"
 
 setup-opensbi:
 	@echo "=== Setting up OpenSBI tree ==="
-	@test -d $(BR_OUTPUT)/build/opensbi-1.3.1 || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
+	@test -d $(BR_OUTPUT)/build/opensbi-1.3.1-linux-on-litex-vexriscv || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
 	@if [ ! -d $(OPENSBI_SRC) ]; then \
 		echo "Copying OpenSBI tree to $(OPENSBI_SRC)..."; \
-		cp -a $(BR_OUTPUT)/build/opensbi-1.3.1 $(OPENSBI_SRC); \
+		cp -a $(BR_OUTPUT)/build/opensbi-1.3.1-linux-on-litex-vexriscv $(OPENSBI_SRC); \
 		echo "OpenSBI tree ready."; \
 	else \
 		echo "$(OPENSBI_SRC) already exists, skipping."; \
@@ -191,12 +187,18 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 
 opensbi: $(OUT)/opensbi-xip.bin
 
-$(OPENSBI_FW_JUMP):
+$(OPENSBI_FW_JUMP): $(OUT)/rv32.dtb
 	@echo "=== Building OpenSBI fw_jump ==="
 	@test -d $(OPENSBI_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
 	cd $(OPENSBI_SRC) && \
 		$(MAKE) CROSS_COMPILE=$(CROSS) PLATFORM=$(OPENSBI_PLATFORM) \
-			PLATFORM_RISCV_XLEN=32 -j$$(nproc)
+			PLATFORM_RISCV_XLEN=32 \
+			FW_TEXT_START=0x02540000 \
+			FW_RW_ADDR=0x407F8000 \
+			FW_JUMP_ADDR=0x02000000 \
+			FW_JUMP_FDT_ADDR=0x40770000 \
+			FW_FDT_PATH=$(OUT)/rv32.dtb \
+			-j$$(nproc)
 
 $(OUT)/opensbi-xip.bin: $(OPENSBI_FW_JUMP) | $(OUT)
 	cp $< $@
@@ -211,16 +213,26 @@ $(OUT)/rv32.dtb: $(DTS_DIR)/sonata.dts | $(OUT)
 # ── Trampoline: lui a1,0x40770; lui t0,0x02780; jr t0 ────────────────
 
 $(OUT)/xipjump.bin: | $(OUT)
-	printf '\xb7\x05\x77\x40\xb7\x02\x78\x02\x67\x80\x02\x00' > $@
+	printf '\xb7\x05\x77\x40\xb7\x02\x54\x02\x67\x80\x02\x00' > $@
 
 # ── Boot JSON ─────────────────────────────────────────────────────────
 
 $(OUT)/boot.json: | $(OUT)
 	printf '{\n    "rv32.dtb":    "0x40770000",\n    "xipjump.bin": "0x40000000"\n}\n' > $@
 
+# ── Rootfs ────────────────────────────────────────────────────────────
+
+rootfs: $(ROOTFS_ROMFS)
+
+$(ROOTFS_ROMFS): | $(OUT)
+	@echo "=== Generating rootfs.romfs from buildroot target ==="
+	@test -d $(BR_TARGET) || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
+	genromfs -d $(BR_TARGET) -f $@ -V rootfs
+	@echo "=== rootfs.romfs ready: $$(du -h $@ | cut -f1) ==="
+
 # ── Flash image ───────────────────────────────────────────────────────
 
-$(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin | $(OUT)
+$(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(ROOTFS_ROMFS) | $(OUT)
 	@echo "=== Assembling flashxip.bin ==="
 	@test -n "$(ROOTFS)" -a -f "$(ROOTFS)" || \
 		{ echo "ERROR: rootfs.romfs not found. Place it in $(OUT)/rootfs.romfs"; exit 1; }
@@ -247,8 +259,8 @@ bitstream:
 	cd $(LITEX_LINUX) && \
 		PYTHONPATH=$(LITEX):$(LITEX_BOARDS):$(MIGEN):$(LITESPI):$(LITESDCARD):$(LITEDRAM):$(VEXRISCV_SMP) \
 		python3 make.py --board=sonata \
-			--cpu-count=2 --with-privileged-debug --jtag-tap --wishbone-force-32b \
-			--with-spi-flash --flash-cache-size=65536 \
+			--cpu-count=1 --with-privileged-debug --jtag-tap --wishbone-force-32b \
+			--icache-size=16384 --icache-ways=4 --dcache-size=16384 --dcache-ways=4 \
 			--build
 	@echo "=== Bitstream ready ==="
 	@ls -la $(LITEX_LINUX)/build/sonata/gateware/sonata.bit
