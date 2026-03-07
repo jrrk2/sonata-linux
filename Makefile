@@ -53,6 +53,7 @@ CROSS        := /home/jonathan/litex-sonata/buildroot/output/host/bin/riscv32-bu
 # Config and source from sonata-system
 CONFIG_DIR   := $(SONATA)/linux/config
 DTS_DIR      := $(SONATA)/linux/dts
+DRIVERS_DIR  := $(SONATA)/linux/drivers
 SDCARD_SRC   := $(SONATA)/linux/sdcard
 
 # Output
@@ -77,7 +78,7 @@ ROOTFS_ROMFS := $(OUT)/rootfs.romfs
 ROOTFS       := $(ROOTFS_ROMFS)
 
 .PHONY: all setup setup-buildroot setup-kernel setup-opensbi \
-        kernel opensbi dtb flashxip sdcard bitstream rootfs \
+        kernel opensbi dtb flashxip sdcard bitstream rootfs uf2 \
         clean kernel-clean opensbi-clean help
 
 all: $(OUT)/flashxip.bin $(OUT)/rv32.dtb $(OUT)/xipjump.bin $(OUT)/boot.json
@@ -161,9 +162,8 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 	@echo "=== Building xipImage ==="
 	@test -d $(LINUX_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
 	@# Update built-in DTB from checked-in DTS
-	dtc -I dts -O dtb -o $(OUT)/sonata-builtin.dtb $(DTS_DIR)/sonata.dts 2>/dev/null
-	base64 $(OUT)/sonata-builtin.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
-	rm -f $(OUT)/sonata-builtin.dtb
+	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata.dts 2>/dev/null
+	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
 	@# Configure from tinyconfig + XIP additions
 	cd $(LINUX_SRC) && \
 		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) tinyconfig && \
@@ -260,10 +260,30 @@ bitstream:
 		PYTHONPATH=$(LITEX):$(LITEX_BOARDS):$(MIGEN):$(LITESPI):$(LITESDCARD):$(LITEDRAM):$(VEXRISCV_SMP) \
 		python3 make.py --board=sonata \
 			--cpu-count=1 --with-privileged-debug --jtag-tap --wishbone-force-32b \
-			--icache-size=16384 --icache-ways=4 --dcache-size=16384 --dcache-ways=4 \
+			--icache-size=65536 --icache-ways=16 --dcache-size=65536 --dcache-ways=16 \
 			--build
 	@echo "=== Bitstream ready ==="
 	@ls -la $(LITEX_LINUX)/build/sonata/gateware/sonata.bit
+
+# ── UF2 for Sonata USB mass-storage flashing ─────────────────────────
+# Slots 1-3 at offsets 0x00000000, 0x10000000, 0x20000000
+
+BITSTREAM    := $(LITEX_LINUX)/build/sonata/gateware/sonata.bit
+VERSION      ?= 0.0
+UF2_SLOTS    := $(OUT)/sonata-v$(VERSION).bit.slot1.uf2 \
+                $(OUT)/sonata-v$(VERSION).bit.slot2.uf2 \
+                $(OUT)/sonata-v$(VERSION).bit.slot3.uf2
+
+uf2: $(UF2_SLOTS)
+
+$(OUT)/sonata-v$(VERSION).bit.slot1.uf2: $(BITSTREAM) | $(OUT)
+	uf2conv -b 0x00000000 -f 0x6ce29e6b $< -co $@
+
+$(OUT)/sonata-v$(VERSION).bit.slot2.uf2: $(BITSTREAM) | $(OUT)
+	uf2conv -b 0x10000000 -f 0x6ce29e6b $< -co $@
+
+$(OUT)/sonata-v$(VERSION).bit.slot3.uf2: $(BITSTREAM) | $(OUT)
+	uf2conv -b 0x20000000 -f 0x6ce29e6b $< -co $@
 
 # ── SD card population ────────────────────────────────────────────────
 
@@ -281,6 +301,88 @@ sdcard: all
 	@echo ""
 	@echo "=== SD card files in $(SDCARD_OUT) ==="
 	@ls -la $(SDCARD_OUT)/
+
+# ── TFTP boot (stub + RAM kernel) ────────────────────────────────────
+#
+# Builds kernel.bin for TFTP network boot:
+#   M-mode stub (4KB) + kernel Image
+# Loaded at 0x40200000.  Stub sets up M-mode, mrets into kernel at +0x1000.
+# Kernel self-relocates to 0x40000000.  Built-in DTB (no separate DTB needed).
+#
+# Usage:
+#   make tftpboot
+#   cp out/kernel.bin /srv/tftp/
+
+RAMIMAGE       := $(LINUX_SRC)/arch/riscv/boot/Image
+INITRAMFS_LIST  := $(SONATA)/linux/initramfs/initramfs.list
+STUB_SRC        := $(SONATA)/linux/stub/stub.S
+STUB_LD         := $(SONATA)/linux/stub/stub.ld
+TFTP_STUB       := $(OUT)/tftp-stub.bin
+
+.PHONY: tftpboot ramkernel
+
+tftpboot: $(OUT)/kernel.bin
+	@echo ""
+	@echo "=== TFTP boot image ready ==="
+	@echo "Copy to TFTP server: cp $(OUT)/kernel.bin /srv/tftp/"
+	@ls -la $(OUT)/kernel.bin
+
+$(TFTP_STUB): $(STUB_SRC) $(STUB_LD) | $(OUT)
+	@echo "=== Building TFTP M-mode stub ==="
+	$(CROSS)gcc -nostdlib -nostartfiles -march=rv32ima_zicsr_zifencei -mabi=ilp32 \
+		-DTFTP_BOOT -T $(STUB_LD) -o $(OUT)/tftp-stub.elf $(STUB_SRC)
+	$(CROSS)objcopy -O binary $(OUT)/tftp-stub.elf $@
+	@# Pad to exactly 4KB
+	truncate -s 4096 $@
+	@echo "  Stub: $$(stat -c%s $@) bytes (padded to 4KB)"
+
+ramkernel: $(RAMIMAGE)
+
+$(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OUT)
+	@echo "=== Building RAM kernel Image ==="
+	@test -d $(LINUX_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
+	@# Copy patched drivers into kernel tree
+	cp $(DRIVERS_DIR)/spi/spi-opentitan.c $(LINUX_SRC)/drivers/spi/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	@# Update built-in DTB from RAM boot DTS
+	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata-ram.dts 2>/dev/null
+	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
+	@# Configure from tinyconfig + RAM additions
+	cd $(LINUX_SRC) && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) tinyconfig && \
+		scripts/kconfig/merge_config.sh -m .config $(CONFIG_DIR)/ram-additions.config && \
+		scripts/config --disable CONFIG_XIP_KERNEL && \
+		scripts/config --disable CONFIG_BLK_DEV_INITRD && \
+		scripts/config --enable CONFIG_BUILTIN_DTB && \
+		scripts/config --set-str CONFIG_BUILTIN_DTB_SOURCE "litex/sonata" && \
+		scripts/config --enable CONFIG_MTD && \
+		scripts/config --enable CONFIG_MTD_ROM && \
+		scripts/config --enable CONFIG_MTD_BLOCK && \
+		scripts/config --enable CONFIG_MTD_PHYSMAP && \
+		scripts/config --enable CONFIG_MTD_PHYSMAP_OF && \
+		scripts/config --set-val CONFIG_MISC_FILESYSTEMS y && \
+		scripts/config --enable CONFIG_ROMFS_FS && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) olddefconfig
+	@# Verify critical options
+	@grep -q 'CONFIG_BUILTIN_DTB=y' $(LINUX_SRC)/.config || \
+		{ echo "ERROR: BUILTIN_DTB lost after olddefconfig!"; exit 1; }
+	@if grep -q 'CONFIG_XIP_KERNEL=y' $(LINUX_SRC)/.config; then \
+		echo "ERROR: XIP_KERNEL is still enabled!"; exit 1; fi
+	@# Build
+	cd $(LINUX_SRC) && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) -j$$(nproc) Image
+	@echo "=== RAM Image ready: $$(du -h $@ | cut -f1) ==="
+
+$(OUT)/kernel.bin: $(TFTP_STUB) $(RAMIMAGE) | $(OUT)
+	@echo "=== Assembling kernel.bin ==="
+	@# Stub at offset 0 (4KB), kernel Image at offset 0x1000
+	cat $(TFTP_STUB) $(RAMIMAGE) > $@
+	@echo "--- Layout (loaded at 0x40200000) ---"
+	@echo "  0x000000: M-mode stub (4096 bytes) → 0x40200000 (entry)"
+	@echo "  0x001000: kernel Image ($$(stat -c%s $(RAMIMAGE)) bytes) → 0x40201000"
+	@echo "  Total: $$(stat -c%s $@) bytes"
 
 # ── Clean ─────────────────────────────────────────────────────────────
 
