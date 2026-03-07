@@ -350,7 +350,7 @@ $(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OU
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	@# Patch kernel build system for SPI_OPENTITAN (idempotent)
 	@grep -q 'SPI_OPENTITAN' $(LINUX_SRC)/drivers/spi/Kconfig || \
-		cd $(LINUX_SRC) && patch -p0 < $(PATCHES_DIR)/spi-opentitan-kbuild.patch
+		cd $(LINUX_SRC) && patch -p1 < $(PATCHES_DIR)/spi-opentitan-kbuild.patch
 	@# Update built-in DTB from RAM boot DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata-ram.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
