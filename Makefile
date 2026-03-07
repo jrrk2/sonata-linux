@@ -347,6 +347,12 @@ $(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OU
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	@# Add SPI_OPENTITAN to kernel build system if not already present
+	@grep -q 'SPI_OPENTITAN' $(LINUX_SRC)/drivers/spi/Kconfig || \
+		sed -i '/config SPI_ATH79/i config SPI_OPENTITAN\n\ttristate "OpenTitan SPI controller"\n\thelp\n\t  SPI controller for OpenTitan-derived SoCs (lowRISC Sonata).\n' \
+			$(LINUX_SRC)/drivers/spi/Kconfig
+	@grep -q 'SPI_OPENTITAN' $(LINUX_SRC)/drivers/spi/Makefile || \
+		echo 'obj-$$(CONFIG_SPI_OPENTITAN)		+= spi-opentitan.o' >> $(LINUX_SRC)/drivers/spi/Makefile
 	@# Update built-in DTB from RAM boot DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata-ram.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
