@@ -48,7 +48,7 @@ OPENSBI_SRC  := $(TOP)/opensbi-xip
 # Buildroot output — 'make setup' builds buildroot using the buildroot submodule
 # with the linux-on-litex-vexriscv overlay (patches, configs).
 BR_OUTPUT    := $(BUILDROOT)/output
-CROSS        := /home/jonathan/litex-sonata/buildroot/output/host/bin/riscv32-buildroot-linux-musl-
+CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 
 # Config and source from sonata-system
 CONFIG_DIR   := $(SONATA)/linux/config
