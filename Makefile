@@ -321,11 +321,12 @@ TFTP_STUB       := $(OUT)/tftp-stub.bin
 
 .PHONY: tftpboot ramkernel
 
+TFTP_DIR     ?= /srv/tftp
+
 tftpboot: $(OUT)/kernel.bin
-	@echo ""
-	@echo "=== TFTP boot image ready ==="
-	@echo "Copy to TFTP server: cp $(OUT)/kernel.bin /srv/tftp/"
-	@ls -la $(OUT)/kernel.bin
+	cp $(OUT)/kernel.bin $(TFTP_DIR)/kernel.bin
+	@echo "=== kernel.bin installed to $(TFTP_DIR) ==="
+	@ls -la $(TFTP_DIR)/kernel.bin
 
 $(TFTP_STUB): $(STUB_SRC) $(STUB_LD) | $(OUT)
 	@echo "=== Building TFTP M-mode stub ==="
