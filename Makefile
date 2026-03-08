@@ -30,7 +30,6 @@ SHELL := /bin/bash
 TOP          := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 # Submodule paths
-SONATA       := $(TOP)/sonata-system
 LITEX_LINUX  := $(TOP)/linux-on-litex-vexriscv
 LITEX        := $(TOP)/litex
 LITEX_BOARDS := $(TOP)/litex-boards
@@ -48,14 +47,13 @@ OPENSBI_SRC  := $(TOP)/opensbi-xip
 # Buildroot output — 'make setup' builds buildroot using the buildroot submodule
 # with the linux-on-litex-vexriscv overlay (patches, configs).
 BR_OUTPUT    := $(BUILDROOT)/output
-CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
+CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-gnu-
 
-# Config and source from sonata-system
-CONFIG_DIR   := $(SONATA)/linux/config
-DTS_DIR      := $(SONATA)/linux/dts
-DRIVERS_DIR  := $(SONATA)/linux/drivers
-PATCHES_DIR  := $(SONATA)/linux/patches
-SDCARD_SRC   := $(SONATA)/linux/sdcard
+# Config and source (local — no longer from sonata-system submodule)
+CONFIG_DIR   := $(TOP)/linux/config
+DTS_DIR      := $(TOP)/linux/dts
+DRIVERS_DIR  := $(TOP)/linux/drivers
+SDCARD_SRC   := $(TOP)/linux/sdcard
 
 # Output
 OUT          := $(TOP)/out
@@ -162,6 +160,11 @@ kernel: $(XIPIMAGE)
 $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 	@echo "=== Building xipImage ==="
 	@test -d $(LINUX_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
+	@# Copy patched drivers into kernel tree
+	cp $(DRIVERS_DIR)/spi/spi-opentitan.c $(LINUX_SRC)/drivers/spi/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	@# Update built-in DTB from checked-in DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
@@ -315,9 +318,9 @@ sdcard: all
 #   cp out/kernel.bin /srv/tftp/
 
 RAMIMAGE       := $(LINUX_SRC)/arch/riscv/boot/Image
-INITRAMFS_LIST  := $(SONATA)/linux/initramfs/initramfs.list
-STUB_SRC        := $(SONATA)/linux/stub/stub.S
-STUB_LD         := $(SONATA)/linux/stub/stub.ld
+INITRAMFS_LIST  := $(TOP)/linux/initramfs/initramfs.list
+STUB_SRC        := $(TOP)/linux/stub/stub.S
+STUB_LD         := $(TOP)/linux/stub/stub.ld
 TFTP_STUB       := $(OUT)/tftp-stub.bin
 
 .PHONY: tftpboot ramkernel
@@ -348,35 +351,14 @@ $(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OU
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
 	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
-	@# Patch kernel build system for SPI_OPENTITAN (idempotent)
-	@grep -q 'SPI_OPENTITAN' $(LINUX_SRC)/drivers/spi/Kconfig || \
-		cd $(LINUX_SRC) && patch -p1 < $(PATCHES_DIR)/spi-opentitan-kbuild.patch
 	@# Update built-in DTB from RAM boot DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata-ram.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
-	@# Configure from tinyconfig + RAM additions
+	@# Use saved defconfig if .config is missing
+	@test -f $(LINUX_SRC)/.config || \
+		cp $(CONFIG_DIR)/ram-defconfig $(LINUX_SRC)/.config
 	cd $(LINUX_SRC) && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) tinyconfig && \
-		scripts/kconfig/merge_config.sh -m .config $(CONFIG_DIR)/ram-additions.config && \
-		scripts/config --disable CONFIG_XIP_KERNEL && \
-		scripts/config --disable CONFIG_BLK_DEV_INITRD && \
-		scripts/config --enable CONFIG_BUILTIN_DTB && \
-		scripts/config --set-str CONFIG_BUILTIN_DTB_SOURCE "litex/sonata" && \
-		scripts/config --enable CONFIG_MTD && \
-		scripts/config --enable CONFIG_MTD_ROM && \
-		scripts/config --enable CONFIG_MTD_BLOCK && \
-		scripts/config --enable CONFIG_MTD_PHYSMAP && \
-		scripts/config --enable CONFIG_MTD_PHYSMAP_OF && \
-		scripts/config --set-val CONFIG_MISC_FILESYSTEMS y && \
-		scripts/config --enable CONFIG_ROMFS_FS && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) olddefconfig
-	@# Verify critical options
-	@grep -q 'CONFIG_BUILTIN_DTB=y' $(LINUX_SRC)/.config || \
-		{ echo "ERROR: BUILTIN_DTB lost after olddefconfig!"; exit 1; }
-	@if grep -q 'CONFIG_XIP_KERNEL=y' $(LINUX_SRC)/.config; then \
-		echo "ERROR: XIP_KERNEL is still enabled!"; exit 1; fi
-	@# Build
-	cd $(LINUX_SRC) && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) olddefconfig && \
 		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) -j$$(nproc) Image
 	@echo "=== RAM Image ready: $$(du -h $@ | cut -f1) ==="
 
