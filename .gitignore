@@ -1,5 +1,6 @@
 out/
 linux-xip/
 opensbi-xip/
+.host-tools/
 *.pyc
 __pycache__/

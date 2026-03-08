@@ -1,7 +1,7 @@
 # sonata-linux — Top-level build for Linux on Sonata FPGA
 #
 # Submodules:
-#   sonata-system/            FPGA RTL, DTS, kernel config, boot scripts
+#   sonata-system/            FPGA RTL (CHERIoT Ibex)
 #   linux-on-litex-vexriscv/  LiteX Linux orchestrator (boards.py, patches)
 #   litex/, litex-boards/     LiteX SoC framework + board definitions
 #   migen/                    Migen HDL (LiteX dependency)
@@ -47,7 +47,7 @@ OPENSBI_SRC  := $(TOP)/opensbi-xip
 # Buildroot output — 'make setup' builds buildroot using the buildroot submodule
 # with the linux-on-litex-vexriscv overlay (patches, configs).
 BR_OUTPUT    := $(BUILDROOT)/output
-CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-gnu-
+CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 
 # Config and source (local — no longer from sonata-system submodule)
 CONFIG_DIR   := $(TOP)/linux/config
@@ -58,6 +58,19 @@ SDCARD_SRC   := $(TOP)/linux/sdcard
 # Output
 OUT          := $(TOP)/out
 SDCARD_OUT   ?= /tmp/sonata-sdcard
+
+# macOS: prepend GNU coreutils wrappers to PATH (created by make setup)
+export PATH := $(TOP)/.host-tools:$(PATH)
+
+# macOS: host compiler flags for kernel/OpenSBI host tools
+#   -std=gnu17          GCC 15 defaults to C23 which breaks old code
+#   -B.host-tools/      use ld wrapper that strips ELF-only flags
+#   -I host/include     elf.h, byteswap.h shims
+#   -include compat.h   uuid_t conflict workaround
+HOSTCC_MACOS := $(shell which gcc) -std=gnu17 \
+	-B$(TOP)/.host-tools/ \
+	-I$(BR_OUTPUT)/host/include \
+	-include $(BR_OUTPUT)/host/include/macos-compat.h
 
 # ── OpenSBI ───────────────────────────────────────────────────────────
 
@@ -123,9 +136,57 @@ setup: setup-buildroot setup-kernel setup-opensbi
 
 setup-buildroot:
 	@echo "=== Building buildroot (toolchain + kernel + rootfs) ==="
+	@# macOS fixes for buildroot
+	@# 1. /bin/true doesn't exist (SIP makes /bin read-only)
+	sed -i.bak 's|/bin/true|/usr/bin/true|g' \
+		$(BUILDROOT)/package/autoconf/autoconf.mk \
+		$(BUILDROOT)/package/pkg-autotools.mk
+	@# 2. program_invocation_short_name is glibc-only
+	@grep -q '__APPLE__' $(BUILDROOT)/toolchain/toolchain-wrapper.c || \
+		perl -i.bak -0pe \
+		's{(#include <stdbool.h>)}{$$1\n\n#ifdef __APPLE__\nstatic const char *_get_progname(void) { return getprogname(); }\n#define program_invocation_short_name _get_progname()\n#endif}' \
+		$(BUILDROOT)/toolchain/toolchain-wrapper.c
+	@# 3. Apple ld doesn't support -s or --hash-style (ELF-only flags)
+	sed -i.bak 's/-s -Wl,--hash-style=[^ ]*//' \
+		$(BUILDROOT)/toolchain/toolchain-wrapper.mk
+	@# 4. GCC 15 defaults to C23 where () means (void) — old code needs gnu17
+	@#    Set via HOSTCC so it applies even when packages override CFLAGS
+	@# 5. GNU coreutils + ld wrapper for macOS
+	@mkdir -p $(TOP)/.host-tools
+	@ln -sf $$(which gsed)      $(TOP)/.host-tools/sed
+	@ln -sf $$(which gcp)       $(TOP)/.host-tools/cp
+	@ln -sf $$(which gdate)     $(TOP)/.host-tools/date
+	@ln -sf $$(which gstat)     $(TOP)/.host-tools/stat
+	@ln -sf $$(which gmktemp)   $(TOP)/.host-tools/mktemp
+	@ln -sf $$(which greadlink) $(TOP)/.host-tools/readlink
+	@ln -sf $$(which gfind)     $(TOP)/.host-tools/find
+	@# ld wrapper: strip ELF-only flags (--version-script, --hash-style)
+	@test -x $(TOP)/.host-tools/ld || { \
+		printf '#!/bin/bash\nargs=()\nfor arg in "$$@"; do\n  case "$$arg" in\n    --version-script=*|--hash-style=*) ;;\n    *) args+=("$$arg") ;;\n  esac\ndone\nexec /opt/local/bin/ld "$${args[@]}"\n' \
+			> $(TOP)/.host-tools/ld && chmod +x $(TOP)/.host-tools/ld; }
+	@# 6. host-kmod is not needed (CONFIG_MODULES=n) but linux
+	@#    unconditionally depends on it; remove from both Config.in and linux.mk
+	@#    to avoid building kmod (which has Linux-only deps: byteswap.h, etc.)
+	sed -i.bak '/select BR2_PACKAGE_HOST_KMOD/d' \
+		$(BUILDROOT)/linux/Config.in
+	sed -i.bak '/host-kmod/d' \
+		$(BUILDROOT)/linux/linux.mk
+	@# 7. macOS lacks <elf.h> and <byteswap.h> — provide shims
+	@mkdir -p $(BR_OUTPUT)/host/include
+	@cp -n $(BR_OUTPUT)/host/riscv32-buildroot-linux-musl/sysroot/usr/include/elf.h \
+		$(BR_OUTPUT)/host/include/elf.h 2>/dev/null || true
+	@test -f $(BR_OUTPUT)/host/include/byteswap.h || \
+		printf '#ifndef _BYTESWAP_H\n#define _BYTESWAP_H\n#include <stdint.h>\nstatic inline uint16_t __bswap_16(uint16_t x){return x<<8|x>>8;}\nstatic inline uint32_t __bswap_32(uint32_t x){return x>>24|(x>>8&0xff00)|(x<<8&0xff0000)|x<<24;}\nstatic inline uint64_t __bswap_64(uint64_t x){return((__bswap_32(x)+0ULL)<<32)|__bswap_32(x>>32);}\n#define bswap_16(x) __bswap_16(x)\n#define bswap_32(x) __bswap_32(x)\n#define bswap_64(x) __bswap_64(x)\n#endif\n' \
+			> $(BR_OUTPUT)/host/include/byteswap.h
+	@# 8. macOS uuid_t (unsigned char[16]) conflicts with kernel's uuid_t (struct)
+	@#    Pre-include macOS headers then redirect uuid_t to avoid collision
+	@test -f $(BR_OUTPUT)/host/include/macos-compat.h || \
+		printf '#ifdef __APPLE__\n#include <unistd.h>\n#define uuid_t __kernel_uuid_t\n#endif\n' \
+			> $(BR_OUTPUT)/host/include/macos-compat.h
 	cd $(BUILDROOT) && \
-		$(MAKE) BR2_EXTERNAL=$(LITEX_LINUX)/buildroot litex_vexriscv_defconfig && \
-		$(MAKE) -j$$(nproc)
+		$(MAKE) BR2_EXTERNAL=$(LITEX_LINUX)/buildroot litex_vexriscv_sonata_defconfig && \
+		PATH="$(TOP)/.host-tools:$$PATH" \
+		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/ -include $(BR_OUTPUT)/host/include/macos-compat.h" -j$$(nproc)
 	@echo "=== Buildroot complete ==="
 	@echo "Toolchain: $(CROSS)gcc"
 	@echo "Target dir: $(BR_TARGET)"
@@ -170,13 +231,13 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
 	@# Configure from tinyconfig + XIP additions
 	cd $(LINUX_SRC) && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) tinyconfig && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" tinyconfig && \
 		scripts/kconfig/merge_config.sh -m .config $(CONFIG_DIR)/xip-additions.config && \
 		scripts/config --set-val CONFIG_MISC_FILESYSTEMS y && \
 		scripts/config --set-val CONFIG_MTD_ROM y && \
 		scripts/config --enable CONFIG_BUILTIN_DTB && \
 		scripts/config --set-str CONFIG_BUILTIN_DTB_SOURCE "litex/sonata" && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) olddefconfig
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" olddefconfig
 	@# Verify critical options
 	@grep -q 'CONFIG_XIP_KERNEL=y' $(LINUX_SRC)/.config || \
 		{ echo "ERROR: XIP_KERNEL lost after olddefconfig!"; exit 1; }
@@ -184,7 +245,7 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 		{ echo "ERROR: BUILTIN_DTB lost after olddefconfig!"; exit 1; }
 	@# Build
 	cd $(LINUX_SRC) && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) -j$$(nproc) xipImage
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" -j$$(nproc) xipImage
 	@echo "=== xipImage ready ==="
 
 # ── OpenSBI ───────────────────────────────────────────────────────────
@@ -214,7 +275,7 @@ dtb: $(OUT)/rv32.dtb
 $(OUT)/rv32.dtb: $(DTS_DIR)/sonata.dts | $(OUT)
 	dtc -I dts -O dtb -o $@ $< 2>/dev/null
 
-# ── Trampoline: lui a1,0x40770; lui t0,0x02780; jr t0 ────────────────
+# ── Trampoline: lui a1,0x40770; lui t0,0x02540; jr t0 ────────────────
 
 $(OUT)/xipjump.bin: | $(OUT)
 	printf '\xb7\x05\x77\x40\xb7\x02\x54\x02\x67\x80\x02\x00' > $@
@@ -358,8 +419,8 @@ $(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OU
 	@test -f $(LINUX_SRC)/.config || \
 		cp $(CONFIG_DIR)/ram-defconfig $(LINUX_SRC)/.config
 	cd $(LINUX_SRC) && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) olddefconfig && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) -j$$(nproc) Image
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" olddefconfig && \
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" -j$$(nproc) Image
 	@echo "=== RAM Image ready: $$(du -h $@ | cut -f1) ==="
 
 $(OUT)/kernel.bin: $(TFTP_STUB) $(RAMIMAGE) | $(OUT)
