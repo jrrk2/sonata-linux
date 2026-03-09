@@ -90,7 +90,7 @@ ROOTFS       := $(ROOTFS_ROMFS)
 
 .PHONY: all setup setup-buildroot setup-kernel setup-opensbi \
         kernel opensbi dtb flashxip sdcard bitstream rootfs uf2 \
-        flash-info clean kernel-clean opensbi-clean help
+        flash-info flasher clean kernel-clean opensbi-clean help
 
 all: $(OUT)/flashxip.bin $(OUT)/rv32.dtb $(OUT)/xipjump.bin $(OUT)/boot.json
 	@echo ""
@@ -107,6 +107,7 @@ help:
 	@echo "  make                 Build flashxip.bin + SD card boot files"
 	@echo "  make rootfs          Generate rootfs.romfs from buildroot target"
 	@echo "  make bitstream       Build FPGA bitstream (requires Vivado)"
+	@echo "  make flasher         Build standalone SD→flash programmer (out/boot.bin)"
 	@echo "  make flash-info      Show BIOS commands for hardware flashing"
 	@echo "  make sdcard          Copy all files to $(SDCARD_OUT)"
 	@echo "  make kernel          Rebuild just the kernel"
@@ -420,6 +421,13 @@ $(OUT)/kernel.bin: $(TFTP_STUB) $(RAMIMAGE) | $(OUT)
 	@echo "  0x000000: M-mode stub (4096 bytes) → 0x40200000 (entry)"
 	@echo "  0x001000: kernel Image ($$(stat -c%s $(RAMIMAGE)) bytes) → 0x40201000"
 	@echo "  Total: $$(stat -c%s $@) bytes"
+
+# ── Flash programmer (standalone SD→flash tool) ───────────────────
+
+flasher: $(OUT)/boot.bin
+
+$(OUT)/boot.bin: | $(OUT)
+	$(MAKE) -C $(TOP)/linux/flasher TOP=$(TOP) CROSS=$(CROSS) OUT=$(OUT)
 
 # ── Clean ─────────────────────────────────────────────────────────────
 
