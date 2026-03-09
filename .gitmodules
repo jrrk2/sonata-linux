@@ -37,3 +37,6 @@
 [submodule "linux-xip"]
 	path = linux-xip
 	url = git@github.com:jrrk2/linux.git
+[submodule "opensbi-xip"]
+	path = opensbi-xip
+	url = git@github.com:jrrk2/opensbi.git
