@@ -52,7 +52,6 @@ CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 # Config and source (local — no longer from sonata-system submodule)
 CONFIG_DIR   := $(TOP)/linux/config
 DTS_DIR      := $(TOP)/linux/dts
-DRIVERS_DIR  := $(TOP)/linux/drivers
 SDCARD_SRC   := $(TOP)/linux/sdcard
 
 # Output
@@ -192,15 +191,8 @@ setup-buildroot:
 	@echo "Target dir: $(BR_TARGET)"
 
 setup-kernel:
-	@echo "=== Setting up kernel tree ==="
-	@test -d $(BR_OUTPUT)/build/linux-6.9 || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
-	@if [ ! -d $(LINUX_SRC) ]; then \
-		echo "Copying kernel tree to $(LINUX_SRC)..."; \
-		cp -a $(BR_OUTPUT)/build/linux-6.9 $(LINUX_SRC); \
-		echo "Kernel tree ready."; \
-	else \
-		echo "$(LINUX_SRC) already exists, skipping."; \
-	fi
+	@echo "=== Kernel tree is a git submodule (linux-xip/) ==="
+	@test -d $(LINUX_SRC)/arch/riscv || { echo "ERROR: run 'git submodule update --init linux-xip'"; exit 1; }
 	@echo "Run 'make rootfs' to generate rootfs.romfs from buildroot target"
 
 setup-opensbi:
@@ -220,12 +212,7 @@ kernel: $(XIPIMAGE)
 
 $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 	@echo "=== Building xipImage ==="
-	@test -d $(LINUX_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
-	@# Copy patched drivers into kernel tree
-	cp $(DRIVERS_DIR)/spi/spi-opentitan.c $(LINUX_SRC)/drivers/spi/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	@test -d $(LINUX_SRC)/arch/riscv || { echo "ERROR: run 'git submodule update --init linux-xip'"; exit 1; }
 	@# Update built-in DTB from checked-in DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
@@ -406,12 +393,7 @@ ramkernel: $(RAMIMAGE)
 
 $(RAMIMAGE): $(CONFIG_DIR)/ram-additions.config $(DTS_DIR)/sonata-ram.dts | $(OUT)
 	@echo "=== Building RAM kernel Image ==="
-	@test -d $(LINUX_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
-	@# Copy patched drivers into kernel tree
-	cp $(DRIVERS_DIR)/spi/spi-opentitan.c $(LINUX_SRC)/drivers/spi/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_common.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851.h $(LINUX_SRC)/drivers/net/ethernet/micrel/
-	cp $(DRIVERS_DIR)/net/ethernet/micrel/ks8851_spi.c $(LINUX_SRC)/drivers/net/ethernet/micrel/
+	@test -d $(LINUX_SRC)/arch/riscv || { echo "ERROR: run 'git submodule update --init linux-xip'"; exit 1; }
 	@# Update built-in DTB from RAM boot DTS
 	dtc -I dts -O dtb -o $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb $(DTS_DIR)/sonata-ram.dts 2>/dev/null
 	base64 $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb > $(LINUX_SRC)/arch/riscv/boot/dts/litex/sonata.dtb.b64
