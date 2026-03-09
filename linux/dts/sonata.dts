@@ -206,7 +206,7 @@
                 #address-cells = <1>;
                 #size-cells = <0>;
                 clocks = <&sys_clk>;
-                status = "okay";
+                status = "disabled";
 
                 ethernet@0 {
                     compatible = "micrel,ks8851";
