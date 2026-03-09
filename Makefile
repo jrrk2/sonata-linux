@@ -196,15 +196,8 @@ setup-kernel:
 	@echo "Run 'make rootfs' to generate rootfs.romfs from buildroot target"
 
 setup-opensbi:
-	@echo "=== Setting up OpenSBI tree ==="
-	@test -d $(BR_OUTPUT)/build/opensbi-1.3.1-linux-on-litex-vexriscv || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
-	@if [ ! -d $(OPENSBI_SRC) ]; then \
-		echo "Copying OpenSBI tree to $(OPENSBI_SRC)..."; \
-		cp -a $(BR_OUTPUT)/build/opensbi-1.3.1-linux-on-litex-vexriscv $(OPENSBI_SRC); \
-		echo "OpenSBI tree ready."; \
-	else \
-		echo "$(OPENSBI_SRC) already exists, skipping."; \
-	fi
+	@echo "=== OpenSBI tree is a git submodule (opensbi-xip/) ==="
+	@test -d $(OPENSBI_SRC)/lib || { echo "ERROR: run 'git submodule update --init opensbi-xip'"; exit 1; }
 
 # ── Kernel ────────────────────────────────────────────────────────────
 
@@ -241,7 +234,7 @@ opensbi: $(OUT)/opensbi-xip.bin
 
 $(OPENSBI_FW_JUMP): $(OUT)/rv32.dtb
 	@echo "=== Building OpenSBI fw_jump ==="
-	@test -d $(OPENSBI_SRC) || { echo "ERROR: run 'make setup' first"; exit 1; }
+	@test -d $(OPENSBI_SRC)/lib || { echo "ERROR: run 'git submodule update --init opensbi-xip'"; exit 1; }
 	cd $(OPENSBI_SRC) && \
 		$(MAKE) CROSS_COMPILE=$(CROSS) PLATFORM=$(OPENSBI_PLATFORM) \
 			PLATFORM_RISCV_XLEN=32 \
