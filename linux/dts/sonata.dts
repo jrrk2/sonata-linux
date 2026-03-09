@@ -9,7 +9,7 @@
 
 
         chosen {
-            bootargs = "console=liteuart earlycon=liteuart,0xf0001000 root=/dev/mtdblock2 rootfstype=romfs ro init=/sbin/init panic=5 loglevel=8";
+            bootargs = "console=liteuart earlycon=liteuart,0xf0001000 root=/dev/mtdblock0 rootfstype=romfs ro init=/sbin/init panic=5 loglevel=8 clk_ignore_unused";
         };
 
         sys_clk: clock-50000000 {
@@ -108,10 +108,11 @@
 
         memory: memory@40000000 {
             device_type = "memory";
-            reg = <0x40000000 0x7F8000>;
-            /* Top 32KB excluded for OpenSBI XIP RW region at 0x407F8000.
-             * Actual usage: 24KB (.data+.bss+heap+stack+scratch).
-             * PMP protects 0x407F8000-0x407FFFFF (32KB). */
+            reg = <0x40000000 0x7EF000>;
+            /* Top 68KB excluded: 4KB PMP guard page at 0x407EF000,
+             * then 64KB for OpenSBI RW data at 0x407F0000.
+             * OpenSBI runs XIP from flash (.text/.rodata) with only
+             * .data/.bss/stacks/heap in RAM (2 harts). */
         };
 
         vreg_mmc: vreg_mmc {
@@ -164,24 +165,18 @@
                 status = "okay";
             };
 
-            flash@2000000 {
+            flash@2700000 {
                 compatible = "mtd-rom";
-                reg = <0x02000000 0x2000000>;
+                reg = <0x02700000 0x1900000>;
                 bank-width = <1>;
                 #address-cells = <1>;
                 #size-cells = <1>;
+                /* Rootfs starts at flash offset 0x700000, past OpenSBI's
+                 * XIP region (0x02600000-0x026XXXXX). */
 
-                kernel_a@0 {
-                    label = "kernel_a";
-                    reg = <0x000000 0x400000>;
-                };
-                kernel_b@400000 {
-                    label = "kernel_b";
-                    reg = <0x400000 0x400000>;
-                };
-                rootfs@800000 {
+                rootfs@0 {
                     label = "rootfs";
-                    reg = <0x800000 0x1800000>;
+                    reg = <0x0 0x1900000>;
                 };
             };
 
@@ -206,7 +201,7 @@
                 #address-cells = <1>;
                 #size-cells = <0>;
                 clocks = <&sys_clk>;
-                status = "disabled";
+                status = "okay";
 
                 ethernet@0 {
                     compatible = "micrel,ks8851";
@@ -227,9 +222,9 @@
                 status = "okay";
             };
 
-            switches: gpio@f0004800 {
+            switches: gpio@f0004000 {
                 compatible = "litex,gpio";
-                reg = <0xf0004800 0x4>;
+                reg = <0xf0004000 0x4>;
                 gpio-controller;
                 #gpio-cells = <2>;
                 litex,direction = "in";

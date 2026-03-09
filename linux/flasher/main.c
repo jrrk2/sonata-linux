@@ -30,15 +30,15 @@
 #define UART_TXFULL       (UART_BASE + 0x04)
 #define UART_RXEMPTY      (UART_BASE + 0x08)
 
-/* ── SPI Flash Controller ────────────────────────────────────────────── */
+/* ── SPI Flash Controller (from generated/csr.h, base 0xf0003800) ──── */
 
-#define SPI_BASE          0xf0004000
-#define SPI_MMAP_DUMMY    (SPI_BASE + 0x00)
-#define SPI_MASTER_CS     (SPI_BASE + 0x04)
-#define SPI_MASTER_PHYCFG (SPI_BASE + 0x08)
-#define SPI_MASTER_RXTX   (SPI_BASE + 0x0C)
-#define SPI_MASTER_STATUS (SPI_BASE + 0x10)
-#define SPI_PHY_CLK_DIV   (SPI_BASE + 0x14)
+#define SPI_BASE          0xf0003800
+#define SPI_PHY_CLK_DIV   (SPI_BASE + 0x00)
+#define SPI_MMAP_DUMMY    (SPI_BASE + 0x04)
+#define SPI_MASTER_CS     (SPI_BASE + 0x08)
+#define SPI_MASTER_PHYCFG (SPI_BASE + 0x0C)
+#define SPI_MASTER_RXTX   (SPI_BASE + 0x10)
+#define SPI_MASTER_STATUS (SPI_BASE + 0x14)
 
 /* Flash memory-mapped region */
 #define FLASH_BASE        0x02000000
@@ -281,50 +281,77 @@ static void spi_set_config(uint32_t len_bits, uint32_t width, uint32_t mask)
 		  ((mask & 0xFF) << 16));
 }
 
-static uint32_t spi_transfer_byte(uint8_t b)
+static int spi_transfer_byte(uint8_t b, uint8_t *out)
 {
+	int timeout;
+
 	/* Wait for TX ready */
-	while (!(reg_read(SPI_MASTER_STATUS) & 1))
-		;
+	for (timeout = 100000; timeout > 0; timeout--) {
+		if (reg_read(SPI_MASTER_STATUS) & 1)
+			break;
+	}
+	if (timeout == 0) {
+		printf("SPI: TX not ready (status=0x%08x)\n",
+		       reg_read(SPI_MASTER_STATUS));
+		return -1;
+	}
+
 	reg_write(SPI_MASTER_RXTX, (uint32_t)b);
+
 	/* Wait for RX ready */
-	while (!(reg_read(SPI_MASTER_STATUS) & 2))
-		;
-	return reg_read(SPI_MASTER_RXTX);
+	for (timeout = 100000; timeout > 0; timeout--) {
+		if (reg_read(SPI_MASTER_STATUS) & 2)
+			break;
+	}
+	if (timeout == 0) {
+		printf("SPI: RX not ready (status=0x%08x)\n",
+		       reg_read(SPI_MASTER_STATUS));
+		return -1;
+	}
+
+	*out = (uint8_t)reg_read(SPI_MASTER_RXTX);
+	return 0;
 }
 
-static void spi_transfer_cmd(const uint8_t *tx, uint8_t *rx, int len)
+static int spi_transfer_cmd(const uint8_t *tx, uint8_t *rx, int len)
 {
 	int i;
 
 	spi_set_config(8, 1, 1);
 	reg_write(SPI_MASTER_CS, 1);
 
-	for (i = 0; i < len; i++)
-		rx[i] = (uint8_t)spi_transfer_byte(tx[i]);
+	for (i = 0; i < len; i++) {
+		if (spi_transfer_byte(tx[i], &rx[i]) < 0) {
+			reg_write(SPI_MASTER_CS, 0);
+			return -1;
+		}
+	}
 
 	reg_write(SPI_MASTER_CS, 0);
+	return 0;
 }
 
-static void spi_write_enable(void)
+static int spi_write_enable(void)
 {
 	uint8_t cmd = CMD_WRITE_ENABLE;
 	uint8_t dummy;
 
-	spi_transfer_cmd(&cmd, &dummy, 1);
+	return spi_transfer_cmd(&cmd, &dummy, 1);
 }
 
-static uint32_t spi_read_status(void)
+static int spi_read_status(uint32_t *status)
 {
 	uint8_t tx[4] = { CMD_READ_STATUS, 0, 0, 0 };
 	uint8_t rx[4];
 
-	spi_transfer_cmd(tx, rx, 4);
+	if (spi_transfer_cmd(tx, rx, 4) < 0)
+		return -1;
 	/* Status is stable in rx[3] (LiteX quirk: need extra clocks) */
-	return rx[3];
+	*status = rx[3];
+	return 0;
 }
 
-static void spi_sector_erase(uint32_t addr)
+static int spi_sector_erase(uint32_t addr)
 {
 	uint8_t tx[4] = {
 		CMD_SECTOR_ERASE,
@@ -334,44 +361,73 @@ static void spi_sector_erase(uint32_t addr)
 	};
 	uint8_t rx[4];
 
-	spi_transfer_cmd(tx, rx, 4);
+	return spi_transfer_cmd(tx, rx, 4);
 }
 
-static void spi_page_program(uint32_t addr, const uint8_t *data, int len)
+static int spi_page_program(uint32_t addr, const uint8_t *data, int len)
 {
+	uint8_t dummy;
 	int i;
 
 	spi_set_config(8, 1, 1);
 	reg_write(SPI_MASTER_CS, 1);
 
 	/* Command + 3-byte address */
-	spi_transfer_byte(CMD_PAGE_PROGRAM);
-	spi_transfer_byte((addr >> 16) & 0xFF);
-	spi_transfer_byte((addr >> 8) & 0xFF);
-	spi_transfer_byte(addr & 0xFF);
+	if (spi_transfer_byte(CMD_PAGE_PROGRAM, &dummy) < 0) goto fail;
+	if (spi_transfer_byte((addr >> 16) & 0xFF, &dummy) < 0) goto fail;
+	if (spi_transfer_byte((addr >> 8) & 0xFF, &dummy) < 0) goto fail;
+	if (spi_transfer_byte(addr & 0xFF, &dummy) < 0) goto fail;
 
 	/* Data */
-	for (i = 0; i < len; i++)
-		spi_transfer_byte(data[i]);
+	for (i = 0; i < len; i++) {
+		if (spi_transfer_byte(data[i], &dummy) < 0) goto fail;
+	}
 
 	reg_write(SPI_MASTER_CS, 0);
+	return 0;
+fail:
+	reg_write(SPI_MASTER_CS, 0);
+	return -1;
 }
 
 static int spi_erase_range(uint32_t addr, uint32_t len)
 {
-	uint32_t i, j;
+	uint32_t i, j, status;
 	int errors = 0;
+	int timeout;
 
 	for (i = 0; i < len; i += SPI_ERASE_SIZE) {
 		printf("  Erase 0x%08x", addr + i);
-		spi_write_enable();
-		spi_sector_erase(addr + i);
 
-		while (spi_read_status() & 1) {
-			uart_putc('.');
-			cdelay(CLK_FREQ / 25);
+		if (spi_write_enable() < 0) {
+			printf(" WREN FAIL\n");
+			errors++;
+			continue;
 		}
-		uart_puts("\n");
+		if (spi_sector_erase(addr + i) < 0) {
+			printf(" CMD FAIL\n");
+			errors++;
+			continue;
+		}
+
+		/* Poll status with timeout (erase can take up to 3 seconds) */
+		for (timeout = 3000; timeout > 0; timeout--) {
+			if (spi_read_status(&status) < 0) {
+				printf(" STATUS READ FAIL\n");
+				errors++;
+				break;
+			}
+			if (!(status & 1))
+				break;
+			uart_putc('.');
+			busy_wait(1);
+		}
+		if (timeout == 0) {
+			printf(" TIMEOUT (status=0x%02x)\n", status);
+			errors++;
+			continue;
+		}
+		printf(" OK\n");
 
 		/* Invalidate cache, then verify erased */
 		flush_dcache();
@@ -390,15 +446,33 @@ static int spi_erase_range(uint32_t addr, uint32_t len)
 
 static int spi_write_page(uint32_t addr, const uint8_t *data, int len)
 {
-	int j;
+	uint32_t status;
+	int j, timeout;
 	int errors = 0;
 
-	spi_write_enable();
-	spi_page_program(addr, data, len);
+	if (spi_write_enable() < 0) {
+		printf("  WREN FAIL at 0x%08x\n", addr);
+		return 1;
+	}
+	if (spi_page_program(addr, data, len) < 0) {
+		printf("  PROGRAM FAIL at 0x%08x\n", addr);
+		return 1;
+	}
 
-	/* Wait for write to complete */
-	while (spi_read_status() & 1)
-		;
+	/* Wait for write to complete with timeout */
+	for (timeout = 100; timeout > 0; timeout--) {
+		if (spi_read_status(&status) < 0) {
+			printf("  STATUS FAIL at 0x%08x\n", addr);
+			return 1;
+		}
+		if (!(status & 1))
+			break;
+		busy_wait_us(100);
+	}
+	if (timeout == 0) {
+		printf("  WRITE TIMEOUT at 0x%08x (status=0x%02x)\n", addr, status);
+		return 1;
+	}
 
 	/* Invalidate cache and verify */
 	flush_dcache();
@@ -718,18 +792,144 @@ static DISKOPS sd_diskops = {
 /* FfDiskOps is defined in ff.c; we set it at runtime in main() */
 
 /* ═══════════════════════════════════════════════════════════════════════
+ * Boot into OpenSBI
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+#define OPENSBI_ENTRY  0x02600000   /* OpenSBI entry point in flash (XIP) */
+#define DTB_LOAD_ADDR  0x40770000
+
+/*
+ * Load rv32.dtb from the (already-mounted) FAT filesystem into HyperRAM.
+ * Returns file size on success, 0 on failure.
+ */
+static uint32_t load_dtb(void)
+{
+	FIL fil;
+	FRESULT fr;
+	UINT bytes_read;
+	uint32_t fsize;
+
+	fr = f_open(&fil, "rv32.dtb", FA_READ);
+	if (fr != FR_OK) {
+		printf("WARNING: Cannot open rv32.dtb (error %d)\n", fr);
+		return 0;
+	}
+	fsize = f_size(&fil);
+	printf("Loading rv32.dtb (%u bytes) to 0x%08x\n", fsize, DTB_LOAD_ADDR);
+
+	fr = f_read(&fil, (void *)DTB_LOAD_ADDR, fsize, &bytes_read);
+	f_close(&fil);
+
+	if (fr != FR_OK || bytes_read != fsize) {
+		printf("WARNING: DTB read error (got %u of %u, error %d)\n",
+		       bytes_read, fsize, fr);
+		return 0;
+	}
+	return fsize;
+}
+
+static void __attribute__((noreturn)) boot_opensbi(uint32_t dtb_addr)
+{
+	printf("Jumping to OpenSBI at 0x%08x (dtb=0x%08x)\n\n",
+	       OPENSBI_ENTRY, dtb_addr);
+
+	/*
+	 * Jump to OpenSBI in flash.  Flush caches first: dcache may
+	 * hold stale flash reads, icache may hold pre-programming
+	 * instructions.  OpenSBI's startup copies .data from flash
+	 * LMA to RAM VMA before using any writable data.
+	 */
+	flush_dcache();
+	asm volatile(
+		"fence.i\n"        /* flush icache */
+		"mv a0, zero\n"    /* hartid = 0 */
+		"mv a1, %0\n"      /* a1 = dtb address */
+		"jr %1\n"
+		:: "r"(dtb_addr), "r"(OPENSBI_ENTRY)
+		: "a0", "a1"
+	);
+
+	__builtin_unreachable();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
  * Main
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /* 4KB read buffer */
 static uint8_t chunk_buf[4096] __attribute__((aligned(4)));
 
+/* Per-sector dirty flags (64KB sectors; 256 covers up to 16MB) */
+#define MAX_SECTORS 256
+static uint8_t dirty[MAX_SECTORS];
+
+/*
+ * Scan flash against file, marking which 64KB sectors differ.
+ * Returns number of dirty sectors, or -1 on read error.
+ * Rewinds the file when done.
+ */
+static int scan_sectors(FIL *fil, uint32_t fsize, int *nsectors_out)
+{
+	uint32_t offset = 0;
+	int n_dirty = 0;
+	int nsectors = (fsize + SPI_ERASE_SIZE - 1) / SPI_ERASE_SIZE;
+	volatile uint8_t *flash = (volatile uint8_t *)FLASH_BASE;
+	UINT bytes_read;
+	FRESULT fr;
+	int i;
+
+	*nsectors_out = nsectors;
+	for (i = 0; i < nsectors; i++)
+		dirty[i] = 0;
+
+	flush_dcache();
+	printf("Comparing flash with flashxip.bin...\n");
+
+	while (offset < fsize) {
+		uint32_t chunk = fsize - offset;
+		uint32_t j;
+		int sector = offset / SPI_ERASE_SIZE;
+
+		if (chunk > sizeof(chunk_buf))
+			chunk = sizeof(chunk_buf);
+
+		fr = f_read(fil, chunk_buf, chunk, &bytes_read);
+		if (fr != FR_OK || bytes_read == 0) {
+			printf("  Read error at offset 0x%08x (error %d)\n",
+			       offset, fr);
+			f_lseek(fil, 0);
+			return -1;
+		}
+
+		if (!dirty[sector]) {
+			for (j = 0; j < bytes_read; j++) {
+				if (flash[offset + j] != chunk_buf[j]) {
+					dirty[sector] = 1;
+					n_dirty++;
+					break;
+				}
+			}
+		}
+
+		offset += bytes_read;
+
+		/* Progress every 256KB */
+		if ((offset % (256 * 1024)) == 0 || offset >= fsize) {
+			printf("  Scanned %u / %u bytes (%u%%)\n",
+			       offset, fsize, (offset * 100) / fsize);
+		}
+	}
+
+	f_lseek(fil, 0);
+	return n_dirty;
+}
+
 int main(void)
 {
 	FATFS fs;
 	FIL fil;
 	FRESULT fr;
-	uint32_t fsize, offset;
+	uint32_t fsize, dtb_addr;
 	UINT bytes_read;
 	int errors;
 
@@ -738,6 +938,20 @@ int main(void)
 	uart_puts(" Sonata Flash Programmer\n");
 	uart_puts("================================\n");
 	uart_puts("\n");
+
+	/* Read SPI flash ID to verify communication */
+	{
+		uint8_t tx[4] = { 0x9F, 0, 0, 0 };
+		uint8_t rx[4];
+		printf("SPI flash: clk_div=%u, probing...\n",
+		       reg_read(SPI_PHY_CLK_DIV));
+		if (spi_transfer_cmd(tx, rx, 4) < 0) {
+			printf("FATAL: SPI flash not responding!\n");
+			return 1;
+		}
+		printf("SPI flash ID: %02x %02x %02x\n",
+		       rx[1], rx[2], rx[3]);
+	}
 
 	/* Set up FatFs disk operations */
 	FfDiskOps = &sd_diskops;
@@ -758,6 +972,11 @@ int main(void)
 	}
 	printf("FAT filesystem mounted\n");
 
+	/* Load DTB from SD card — needed for OpenSBI boot */
+	dtb_addr = load_dtb() ? DTB_LOAD_ADDR : 0;
+	if (!dtb_addr)
+		printf("WARNING: No DTB — OpenSBI may not boot correctly\n");
+
 	/* Open flashxip.bin */
 	fr = f_open(&fil, "flashxip.bin", FA_READ);
 	if (fr != FR_OK) {
@@ -773,42 +992,87 @@ int main(void)
 		return 1;
 	}
 
-	/* Erase flash */
+	/* Scan sectors to find which ones differ */
 	{
-		uint32_t erase_len = (fsize + SPI_ERASE_SIZE - 1) & ~(SPI_ERASE_SIZE - 1);
-		printf("Erasing %u bytes (%u sectors)...\n",
-		       erase_len, erase_len / SPI_ERASE_SIZE);
-		errors = spi_erase_range(0, erase_len);
-		if (errors) {
-			printf("WARNING: %d erase errors\n", errors);
+		int nsectors, n_dirty, i;
+
+		n_dirty = scan_sectors(&fil, fsize, &nsectors);
+		if (n_dirty == 0) {
+			printf("Flash is up to date (%d sectors verified)\n",
+			       nsectors);
+			f_close(&fil);
+			f_mount(NULL, "", 0);
+			boot_opensbi(dtb_addr);
 		}
-		printf("Erase complete\n\n");
+		if (n_dirty < 0) {
+			printf("Read error during scan — programming all sectors\n");
+			for (i = 0; i < nsectors; i++)
+				dirty[i] = 1;
+			n_dirty = nsectors;
+		}
+
+		printf("%d / %d sectors need updating", n_dirty, nsectors);
+		if (n_dirty <= 8) {
+			printf(":");
+			for (i = 0; i < nsectors; i++)
+				if (dirty[i])
+					printf(" %d", i);
+		}
+		printf("\n\n");
 	}
 
-	/* Program flash in 4KB chunks */
-	printf("Programming flash...\n");
-	offset = 0;
+	/* Erase and program only dirty sectors */
 	errors = 0;
+	{
+		int nsectors = (fsize + SPI_ERASE_SIZE - 1) / SPI_ERASE_SIZE;
+		int s, done = 0, total_dirty = 0;
 
-	while (offset < fsize) {
-		uint32_t chunk = fsize - offset;
-		if (chunk > sizeof(chunk_buf))
-			chunk = sizeof(chunk_buf);
+		for (s = 0; s < nsectors; s++)
+			if (dirty[s])
+				total_dirty++;
 
-		fr = f_read(&fil, chunk_buf, chunk, &bytes_read);
-		if (fr != FR_OK || bytes_read == 0) {
-			printf("\nFATAL: Read error at offset 0x%08x (error %d)\n",
-			       offset, fr);
-			break;
-		}
+		for (s = 0; s < nsectors; s++) {
+			uint32_t sect_addr = (uint32_t)s * SPI_ERASE_SIZE;
+			uint32_t sect_end, pos;
 
-		errors += spi_write_stream(offset, chunk_buf, bytes_read);
-		offset += bytes_read;
+			if (!dirty[s])
+				continue;
 
-		/* Progress every 64KB */
-		if ((offset % (64 * 1024)) == 0 || offset >= fsize) {
-			printf("  %u / %u bytes (%u%%)\n",
-			       offset, fsize, (offset * 100) / fsize);
+			done++;
+			printf("[%d/%d] Sector %d (0x%08x)\n",
+			       done, total_dirty, s, sect_addr);
+
+			/* Erase */
+			errors += spi_erase_range(sect_addr, SPI_ERASE_SIZE);
+
+			/* Program: seek to sector start in file, write pages */
+			sect_end = sect_addr + SPI_ERASE_SIZE;
+			if (sect_end > fsize)
+				sect_end = fsize;
+
+			fr = f_lseek(&fil, sect_addr);
+			if (fr != FR_OK) {
+				printf("  Seek error (error %d)\n", fr);
+				errors++;
+				continue;
+			}
+
+			for (pos = sect_addr; pos < sect_end; ) {
+				uint32_t chunk = sect_end - pos;
+				if (chunk > sizeof(chunk_buf))
+					chunk = sizeof(chunk_buf);
+
+				fr = f_read(&fil, chunk_buf, chunk, &bytes_read);
+				if (fr != FR_OK || bytes_read == 0) {
+					printf("  Read error at 0x%08x (error %d)\n",
+					       pos, fr);
+					errors++;
+					break;
+				}
+
+				errors += spi_write_stream(pos, chunk_buf, bytes_read);
+				pos += bytes_read;
+			}
 		}
 	}
 
@@ -817,13 +1081,13 @@ int main(void)
 
 	printf("\n");
 	if (errors) {
-		printf("DONE with %d verify errors!\n", errors);
-	} else if (offset >= fsize) {
-		printf("SUCCESS: %u bytes programmed and verified\n", offset);
+		printf("DONE with %d errors!\n", errors);
 	} else {
-		printf("FAILED: Only %u of %u bytes programmed\n", offset, fsize);
+		printf("SUCCESS: flash updated and verified\n");
+		boot_opensbi(dtb_addr);
 	}
 
-	printf("\nYou may now reset the board.\n");
-	return 0;
+	printf("\nHalted.\n");
+	for (;;)
+		asm volatile("wfi");
 }

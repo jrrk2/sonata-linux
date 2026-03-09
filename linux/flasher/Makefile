@@ -14,7 +14,7 @@ OBJCOPY   := $(CROSS)objcopy
 # FatFs sources from LiteX
 FATFS_DIR := $(TOP)/litex/litex/soc/software/libfatfs
 
-CFLAGS    := -march=rv32ima_zicsr -mabi=ilp32 \
+CFLAGS    := -march=rv32ima_zicsr_zifencei -mabi=ilp32 \
              -nostdlib -nostartfiles -ffreestanding -fno-stack-protector \
              -fno-pic -fno-pie \
              -Os -Wall -Wno-unused-function -Wno-unused-but-set-variable \

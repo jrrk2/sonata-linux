@@ -78,8 +78,8 @@ OPENSBI_FW_JUMP  := $(OPENSBI_SRC)/build/platform/$(OPENSBI_PLATFORM)/firmware/f
 
 # ── Flash layout ──────────────────────────────────────────────────────
 
-OPENSBI_OFFSET := 0x540000
-ROOTFS_OFFSET  := 0x5C0000
+OPENSBI_OFFSET := 0x600000
+ROOTFS_OFFSET  := 0x700000
 
 # ── Output files ──────────────────────────────────────────────────────
 
@@ -217,14 +217,11 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 		scripts/kconfig/merge_config.sh -m .config $(CONFIG_DIR)/xip-additions.config && \
 		scripts/config --set-val CONFIG_MISC_FILESYSTEMS y && \
 		scripts/config --set-val CONFIG_MTD_ROM y && \
-		scripts/config --enable CONFIG_BUILTIN_DTB && \
-		scripts/config --set-str CONFIG_BUILTIN_DTB_SOURCE "litex/sonata" && \
+		scripts/config --disable CONFIG_BUILTIN_DTB && \
 		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" olddefconfig
 	@# Verify critical options
 	@grep -q 'CONFIG_XIP_KERNEL=y' $(LINUX_SRC)/.config || \
 		{ echo "ERROR: XIP_KERNEL lost after olddefconfig!"; exit 1; }
-	@grep -q 'CONFIG_BUILTIN_DTB=y' $(LINUX_SRC)/.config || \
-		{ echo "ERROR: BUILTIN_DTB lost after olddefconfig!"; exit 1; }
 	@# Build
 	cd $(LINUX_SRC) && \
 		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" -j$$(nproc) xipImage
@@ -240,8 +237,8 @@ $(OPENSBI_FW_JUMP): $(OUT)/rv32.dtb
 	cd $(OPENSBI_SRC) && \
 		$(MAKE) CROSS_COMPILE=$(CROSS) PLATFORM=$(OPENSBI_PLATFORM) \
 			PLATFORM_RISCV_XLEN=32 \
-			FW_TEXT_START=0x02540000 \
-			FW_RW_ADDR=0x407F8000 \
+			FW_TEXT_START=0x02600000 \
+			FW_RW_ADDR=0x407F0000 \
 			FW_JUMP_ADDR=0x02000000 \
 			FW_JUMP_FDT_ADDR=0x40770000 \
 			FW_FDT_PATH=$(OUT)/rv32.dtb \
@@ -260,7 +257,7 @@ $(OUT)/rv32.dtb: $(DTS_DIR)/sonata.dts | $(OUT)
 # ── Trampoline: lui a1,0x40770; lui t0,0x02540; jr t0 ────────────────
 
 $(OUT)/xipjump.bin: | $(OUT)
-	printf '\xb7\x05\x77\x40\xb7\x02\x54\x02\x67\x80\x02\x00' > $@
+	printf '\xb7\x05\x77\x40\xb7\x02\x60\x02\x67\x80\x02\x00' > $@
 
 # ── Boot JSON ─────────────────────────────────────────────────────────
 
@@ -284,6 +281,11 @@ $(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(ROOTFS_ROMFS) | $(OUT)
 	@test -n "$(ROOTFS)" -a -f "$(ROOTFS)" || \
 		{ echo "ERROR: rootfs.romfs not found. Place it in $(OUT)/rootfs.romfs"; exit 1; }
 	cp $(XIPIMAGE) $@
+	@KSIZE=$$(wc -c < $(XIPIMAGE) | tr -d ' '); \
+	if [ $$KSIZE -gt $$(($(OPENSBI_OFFSET))) ]; then \
+		echo "ERROR: xipImage ($$KSIZE bytes) exceeds OpenSBI slot ($$(($(OPENSBI_OFFSET))) bytes)"; \
+		rm -f $@; exit 1; \
+	fi
 	truncate -s $$(($(OPENSBI_OFFSET))) $@
 	cat $(OUT)/opensbi-xip.bin >> $@
 	truncate -s $$(($(ROOTFS_OFFSET))) $@

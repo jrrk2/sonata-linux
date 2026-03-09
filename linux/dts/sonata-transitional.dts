@@ -168,11 +168,11 @@
                 status = "okay";
             };
 
-            spiflash: spiflash@f0004000 {
+            spiflash: spiflash@f0003800 {
                 #address-cells = <1>;
                 #size-cells = <1>;
                 compatible = "litex,spiflash";
-                reg = <0xf0004000 0x100>;
+                reg = <0xf0003800 0x18>;
 
                 flash@0 {
                     compatible = "jedec,spi-nor";
