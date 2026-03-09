@@ -90,7 +90,7 @@ ROOTFS       := $(ROOTFS_ROMFS)
 
 .PHONY: all setup setup-buildroot setup-kernel setup-opensbi \
         kernel opensbi dtb flashxip sdcard bitstream rootfs uf2 \
-        clean kernel-clean opensbi-clean help
+        flash-info clean kernel-clean opensbi-clean help
 
 all: $(OUT)/flashxip.bin $(OUT)/rv32.dtb $(OUT)/xipjump.bin $(OUT)/boot.json
 	@echo ""
@@ -107,6 +107,7 @@ help:
 	@echo "  make                 Build flashxip.bin + SD card boot files"
 	@echo "  make rootfs          Generate rootfs.romfs from buildroot target"
 	@echo "  make bitstream       Build FPGA bitstream (requires Vivado)"
+	@echo "  make flash-info      Show BIOS commands for hardware flashing"
 	@echo "  make sdcard          Copy all files to $(SDCARD_OUT)"
 	@echo "  make kernel          Rebuild just the kernel"
 	@echo "  make opensbi         Rebuild just OpenSBI"
@@ -287,10 +288,23 @@ $(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(ROOTFS_ROMFS) | $(OUT)
 	truncate -s $$(($(ROOTFS_OFFSET))) $@
 	cat $(ROOTFS) >> $@
 	@echo "--- Verify ---"
-	@hexdump -C $@ | head -1
-	@hexdump -C $@ -s $(OPENSBI_OFFSET) -n 8
-	@hexdump -C $@ -s $(ROOTFS_OFFSET) -n 8
+	@hexdump -C -n 16 $@
+	@hexdump -C -s $(OPENSBI_OFFSET) -n 16 $@
+	@hexdump -C -s $(ROOTFS_OFFSET) -n 16 $@
 	@ls -la $@
+
+# ── Flash info (BIOS commands for hardware programming) ──────────────
+
+flash-info: $(OUT)/flashxip.bin
+	@SIZE=$$(stat -c%s $(OUT)/flashxip.bin); \
+	echo ""; \
+	echo "=== Flash to hardware ==="; \
+	echo "Copy $(OUT)/flashxip.bin to SD card, then in BIOS:"; \
+	echo ""; \
+	echo "  flash_erase_range 0 $$SIZE"; \
+	echo "  flash_from_sdcard flashxip.bin"; \
+	echo ""; \
+	echo "Image: $(OUT)/flashxip.bin ($$SIZE bytes)"
 
 # ── FPGA bitstream ────────────────────────────────────────────────────
 
