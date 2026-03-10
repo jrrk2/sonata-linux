@@ -224,8 +224,8 @@ $(XIPIMAGE): $(CONFIG_DIR)/xip-additions.config $(DTS_DIR)/sonata.dts | $(OUT)
 		{ echo "ERROR: XIP_KERNEL lost after olddefconfig!"; exit 1; }
 	@# Build
 	cd $(LINUX_SRC) && \
-		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" -j$$(nproc) xipImage
-	@echo "=== xipImage ready ==="
+		$(MAKE) ARCH=riscv CROSS_COMPILE=$(CROSS) HOSTCC="$(HOSTCC_MACOS)" -j$$(nproc) xipImage modules
+	@echo "=== xipImage + modules ready ==="
 
 # ── OpenSBI ───────────────────────────────────────────────────────────
 
@@ -271,6 +271,11 @@ rootfs: $(ROOTFS_ROMFS)
 $(ROOTFS_ROMFS): | $(OUT)
 	@echo "=== Generating rootfs.romfs from buildroot target ==="
 	@test -d $(BR_TARGET) || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
+	@# Install kernel modules into rootfs
+	mkdir -p $(BR_TARGET)/lib/modules
+	find $(LINUX_SRC) -name '*.ko' -exec cp {} $(BR_TARGET)/lib/modules/ \;
+	@echo "--- Kernel modules ---"
+	@ls $(BR_TARGET)/lib/modules/*.ko 2>/dev/null || echo "  (none)"
 	genromfs -d $(BR_TARGET) -f $@ -V rootfs
 	@echo "=== rootfs.romfs ready: $$(du -h $@ | cut -f1) ==="
 

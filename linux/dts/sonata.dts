@@ -182,16 +182,9 @@
 
             mmc0: mmc@f0003000 {
                 compatible = "litex,mmc";
-                reg = <0xf0003000 0x1c>,
-                      <0xf000301c 0x2c>,
-                      <0xf0003048 0x1c>,
-                      <0xf0003064 0x1c>,
-                      <0xf0003080 0x100>;
-                reg-names = "phy", "core", "reader", "writer", "irq";
+                reg = <0xf0003000 0x80>;
                 clocks = <&sys_clk>;
-                vmmc-supply = <&vreg_mmc>;
                 bus-width = <0x04>;
-                interrupts = <3>;
                 status = "okay";
             };
 
