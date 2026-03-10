@@ -2,3 +2,13 @@ out/
 .host-tools/
 *.pyc
 __pycache__/
+
+# Manual build trees (now handled by buildroot packages)
+tinycc/
+ocaml-3.07/
+ocaml-3.07-host/
+
+# Build artifacts
+linux/flasher/*.o
+linux/sdtest/
+sdtest

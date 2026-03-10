@@ -1,0 +1,11 @@
+config BR2_PACKAGE_TCC
+	bool "tcc"
+	help
+	  Tiny C Compiler — a small, fast C compiler that can compile
+	  and run C code directly.  This builds a riscv32 cross from
+	  the jrrk2/tinycc fork which has riscv32 target support.
+
+	  Also installs musl C headers and CRT files so tcc can
+	  compile and link programs on-target.
+
+	  https://github.com/jrrk2/tinycc

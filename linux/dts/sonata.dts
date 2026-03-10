@@ -167,16 +167,16 @@
 
             flash@2700000 {
                 compatible = "mtd-rom";
-                reg = <0x02700000 0x1900000>;
+                reg = <0x02700000 0x900000>;
                 bank-width = <1>;
                 #address-cells = <1>;
                 #size-cells = <1>;
                 /* Rootfs starts at flash offset 0x700000, past OpenSBI's
-                 * XIP region (0x02600000-0x026XXXXX). */
+                 * XIP region (0x02600000-0x0264XXXX). */
 
                 rootfs@0 {
                     label = "rootfs";
-                    reg = <0x0 0x1900000>;
+                    reg = <0x0 0x900000>;
                 };
             };
 

@@ -53,6 +53,7 @@ CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 CONFIG_DIR   := $(TOP)/linux/config
 DTS_DIR      := $(TOP)/linux/dts
 SDCARD_SRC   := $(TOP)/linux/sdcard
+BR2_EXT      := $(TOP)/linux/buildroot-ext
 
 # Output
 OUT          := $(TOP)/out
@@ -185,7 +186,7 @@ setup-buildroot:
 		printf '#ifdef __APPLE__\n#include <unistd.h>\n#define uuid_t __kernel_uuid_t\n#endif\n' \
 			> $(BR_OUTPUT)/host/include/macos-compat.h
 	cd $(BUILDROOT) && \
-		$(MAKE) BR2_EXTERNAL=$(LITEX_LINUX)/buildroot litex_vexriscv_sonata_defconfig && \
+		$(MAKE) BR2_EXTERNAL="$(LITEX_LINUX)/buildroot:$(BR2_EXT)" sonata_defconfig && \
 		PATH="$(TOP)/.host-tools:$$PATH" \
 		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/ -include $(BR_OUTPUT)/host/include/macos-compat.h" -j$$(nproc)
 	@echo "=== Buildroot complete ==="
@@ -254,7 +255,7 @@ dtb: $(OUT)/rv32.dtb
 $(OUT)/rv32.dtb: $(DTS_DIR)/sonata.dts | $(OUT)
 	dtc -I dts -O dtb -o $@ $< 2>/dev/null
 
-# ── Trampoline: lui a1,0x40770; lui t0,0x02540; jr t0 ────────────────
+# ── Trampoline: lui a1,0x40770; lui t0,0x02600; jr t0 ────────────────
 
 $(OUT)/xipjump.bin: | $(OUT)
 	printf '\xb7\x05\x77\x40\xb7\x02\x60\x02\x67\x80\x02\x00' > $@

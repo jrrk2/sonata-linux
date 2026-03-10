@@ -1,0 +1,2 @@
+source "$BR2_EXTERNAL_SONATA_LINUX_PATH/package/tcc/Config.in"
+source "$BR2_EXTERNAL_SONATA_LINUX_PATH/package/ocaml3/Config.in"
