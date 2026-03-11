@@ -1,12 +1,17 @@
 /* crt0.S - Minimal startup for Sonata flash programmer
  *
  * Runs in M-mode from HyperRAM at 0x40000000.
- * Disables interrupts, sets stack, clears BSS, calls main().
+ * Hart 0: disables interrupts, sets stack, clears BSS, calls main().
+ * Other harts: park immediately in WFI loop.
  */
 
 .section .text.start
 .globl _start
 _start:
+	/* Park non-boot harts */
+	csrr	t0, mhartid
+	bnez	t0, .Lpark
+
 	/* Disable interrupts */
 	csrw	mie, zero
 	csrci	mstatus, 8		/* Clear MIE in mstatus */
@@ -27,6 +32,6 @@ _start:
 	call	main
 
 	/* Infinite loop on return */
-3:
+.Lpark:
 	wfi
-	j	3b
+	j	.Lpark

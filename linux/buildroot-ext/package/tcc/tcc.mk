@@ -45,6 +45,17 @@ define TCC_INSTALL_TARGET_CMDS
 				$(TARGET_DIR)/usr/lib/$$f; \
 		fi; \
 	done
+	# Install musl stub libraries (empty archives that satisfy -lm etc.)
+	for f in libm.a libdl.a libpthread.a librt.a libcrypt.a libresolv.a libxnet.a libutil.a; do \
+		if [ -f $(STAGING_DIR)/usr/lib/$$f ]; then \
+			$(INSTALL) -D -m 0644 $(STAGING_DIR)/usr/lib/$$f \
+				$(TARGET_DIR)/usr/lib/$$f; \
+		fi; \
+	done
+	# Install libgcc.a (soft-float runtime: __floatsidf, __adddf3, etc.)
+	$(INSTALL) -D -m 0644 \
+		$(STAGING_DIR)/../host/lib/gcc/$(GNU_TARGET_NAME)/*/libgcc.a \
+		$(TARGET_DIR)/usr/lib/libgcc.a
 endef
 
 $(eval $(generic-package))
