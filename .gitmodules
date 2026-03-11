@@ -9,7 +9,7 @@
 	url = https://github.com/enjoy-digital/litex.git
 [submodule "litex-boards"]
 	path = litex-boards
-	url = https://github.com/litex-hub/litex-boards.git
+	url = git@github.com:jrrk2/litex-boards.git
 [submodule "migen"]
 	path = migen
 	url = https://git.m-labs.hk/M-Labs/migen.git
