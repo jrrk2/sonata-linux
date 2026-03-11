@@ -80,6 +80,7 @@ OPENSBI_FW_JUMP  := $(OPENSBI_SRC)/build/platform/$(OPENSBI_PLATFORM)/firmware/f
 # ── Flash layout ──────────────────────────────────────────────────────
 
 OPENSBI_OFFSET := 0x600000
+DTB_OFFSET     := 0x6FF000
 ROOTFS_OFFSET  := 0x700000
 
 # ── Output files ──────────────────────────────────────────────────────
@@ -255,15 +256,17 @@ dtb: $(OUT)/rv32.dtb
 $(OUT)/rv32.dtb: $(DTS_DIR)/sonata.dts | $(OUT)
 	dtc -I dts -O dtb -o $@ $< 2>/dev/null
 
-# ── Trampoline: lui a1,0x40770; lui t0,0x02600; jr t0 ────────────────
+# ── Trampoline: copy DTB from flash to RAM, jump to OpenSBI ──────────
 
-$(OUT)/xipjump.bin: | $(OUT)
-	printf '\xb7\x05\x77\x40\xb7\x02\x60\x02\x67\x80\x02\x00' > $@
+$(OUT)/xipjump.bin: linux/xipjump.S | $(OUT)
+	$(CROSS)gcc -c -march=rv32ima -mabi=ilp32 -o $(OUT)/xipjump.o $<
+	$(CROSS)ld -Ttext=0 -o $(OUT)/xipjump.elf $(OUT)/xipjump.o
+	$(CROSS)objcopy -O binary $(OUT)/xipjump.elf $@
 
 # ── Boot JSON ─────────────────────────────────────────────────────────
 
 $(OUT)/boot.json: | $(OUT)
-	printf '{\n    "rv32.dtb":    "0x40770000",\n    "xipjump.bin": "0x40000000"\n}\n' > $@
+	printf '{\n    "xipjump.bin": "0x40000000"\n}\n' > $@
 
 # ── Rootfs ────────────────────────────────────────────────────────────
 
@@ -282,7 +285,7 @@ $(ROOTFS_ROMFS): | $(OUT)
 
 # ── Flash image ───────────────────────────────────────────────────────
 
-$(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(ROOTFS_ROMFS) | $(OUT)
+$(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(OUT)/rv32.dtb $(ROOTFS_ROMFS) | $(OUT)
 	@echo "=== Assembling flashxip.bin ==="
 	@test -n "$(ROOTFS)" -a -f "$(ROOTFS)" || \
 		{ echo "ERROR: rootfs.romfs not found. Place it in $(OUT)/rootfs.romfs"; exit 1; }
@@ -294,11 +297,19 @@ $(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(ROOTFS_ROMFS) | $(OUT)
 	fi
 	truncate -s $$(($(OPENSBI_OFFSET))) $@
 	cat $(OUT)/opensbi-xip.bin >> $@
+	truncate -s $$(($(DTB_OFFSET))) $@
+	@DSIZE=$$(wc -c < $(OUT)/rv32.dtb | tr -d ' '); \
+	if [ $$DSIZE -gt 4096 ]; then \
+		echo "ERROR: DTB ($$DSIZE bytes) exceeds 4KB sector"; \
+		rm -f $@; exit 1; \
+	fi
+	cat $(OUT)/rv32.dtb >> $@
 	truncate -s $$(($(ROOTFS_OFFSET))) $@
 	cat $(ROOTFS) >> $@
 	@echo "--- Verify ---"
 	@hexdump -C -n 16 $@
 	@hexdump -C -s $(OPENSBI_OFFSET) -n 16 $@
+	@hexdump -C -s $(DTB_OFFSET) -n 16 $@
 	@hexdump -C -s $(ROOTFS_OFFSET) -n 16 $@
 	@ls -la $@
 
@@ -358,7 +369,6 @@ $(OUT)/sonata-v$(VERSION).bit.slot3.uf2: $(BITSTREAM) | $(OUT)
 sdcard: all
 	mkdir -p $(SDCARD_OUT)
 	cp $(OUT)/flashxip.bin $(SDCARD_OUT)/
-	cp $(OUT)/rv32.dtb     $(SDCARD_OUT)/
 	cp $(OUT)/xipjump.bin  $(SDCARD_OUT)/
 	cp $(OUT)/boot.json    $(SDCARD_OUT)/
 	@# Copy bitstream if available

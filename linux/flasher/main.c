@@ -795,42 +795,15 @@ static DISKOPS sd_diskops = {
  * Boot into OpenSBI
  * ═══════════════════════════════════════════════════════════════════════ */
 
-#define OPENSBI_ENTRY  0x02600000   /* OpenSBI entry point in flash (XIP) */
-#define DTB_LOAD_ADDR  0x40770000
+#define OPENSBI_ENTRY    0x02600000   /* OpenSBI entry point in flash (XIP) */
+#define DTB_LOAD_ADDR    0x40770000
+#define DTB_FLASH_OFFSET 0x6FF000     /* DTB sector in flash image */
 
-/*
- * Load rv32.dtb from the (already-mounted) FAT filesystem into HyperRAM.
- * Returns file size on success, 0 on failure.
- */
-static uint32_t load_dtb(void)
+static void __attribute__((noreturn)) boot_opensbi(void)
 {
-	FIL fil;
-	FRESULT fr;
-	UINT bytes_read;
-	uint32_t fsize;
+	uint32_t dtb_addr = FLASH_BASE + DTB_FLASH_OFFSET;
 
-	fr = f_open(&fil, "rv32.dtb", FA_READ);
-	if (fr != FR_OK) {
-		printf("WARNING: Cannot open rv32.dtb (error %d)\n", fr);
-		return 0;
-	}
-	fsize = f_size(&fil);
-	printf("Loading rv32.dtb (%u bytes) to 0x%08x\n", fsize, DTB_LOAD_ADDR);
-
-	fr = f_read(&fil, (void *)DTB_LOAD_ADDR, fsize, &bytes_read);
-	f_close(&fil);
-
-	if (fr != FR_OK || bytes_read != fsize) {
-		printf("WARNING: DTB read error (got %u of %u, error %d)\n",
-		       bytes_read, fsize, fr);
-		return 0;
-	}
-	return fsize;
-}
-
-static void __attribute__((noreturn)) boot_opensbi(uint32_t dtb_addr)
-{
-	printf("Jumping to OpenSBI at 0x%08x (dtb=0x%08x)\n\n",
+	printf("Jumping to OpenSBI at 0x%08x (dtb=0x%08x in flash)\n\n",
 	       OPENSBI_ENTRY, dtb_addr);
 
 	/*
@@ -843,7 +816,7 @@ static void __attribute__((noreturn)) boot_opensbi(uint32_t dtb_addr)
 	asm volatile(
 		"fence.i\n"        /* flush icache */
 		"mv a0, zero\n"    /* hartid = 0 */
-		"mv a1, %0\n"      /* a1 = dtb address */
+		"mv a1, %0\n"      /* a1 = dtb address (in flash) */
 		"jr %1\n"
 		:: "r"(dtb_addr), "r"(OPENSBI_ENTRY)
 		: "a0", "a1"
@@ -929,7 +902,7 @@ int main(void)
 	FATFS fs;
 	FIL fil;
 	FRESULT fr;
-	uint32_t fsize, dtb_addr;
+	uint32_t fsize;
 	UINT bytes_read;
 	int errors;
 
@@ -972,11 +945,6 @@ int main(void)
 	}
 	printf("FAT filesystem mounted\n");
 
-	/* Load DTB from SD card — needed for OpenSBI boot */
-	dtb_addr = load_dtb() ? DTB_LOAD_ADDR : 0;
-	if (!dtb_addr)
-		printf("WARNING: No DTB — OpenSBI may not boot correctly\n");
-
 	/* Open flashxip.bin */
 	fr = f_open(&fil, "flashxip.bin", FA_READ);
 	if (fr != FR_OK) {
@@ -1002,7 +970,7 @@ int main(void)
 			       nsectors);
 			f_close(&fil);
 			f_mount(NULL, "", 0);
-			boot_opensbi(dtb_addr);
+			boot_opensbi();
 		}
 		if (n_dirty < 0) {
 			printf("Read error during scan — programming all sectors\n");
@@ -1084,7 +1052,7 @@ int main(void)
 		printf("DONE with %d errors!\n", errors);
 	} else {
 		printf("SUCCESS: flash updated and verified\n");
-		boot_opensbi(dtb_addr);
+		boot_opensbi();
 	}
 
 	printf("\nHalted.\n");
