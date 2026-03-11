@@ -1,0 +1,8 @@
+--- a/hw/riscv/meson.build
++++ b/hw/riscv/meson.build
+@@ -1,4 +1,5 @@
+ riscv_ss.add(files('riscv_hart.c'))
++riscv_ss.add(when: 'CONFIG_SONATA', if_true: files('sonata.c'))
+ riscv_ss.add(when: 'CONFIG_MICROCHIP_PFSOC', if_true: files('microchip_pfsoc.c'))
+ riscv_ss.add(when: 'CONFIG_OPENTITAN', if_true: files('opentitan.c'))
+ riscv_ss.add(when: 'CONFIG_RISCV_VIRT', if_true: files('virt.c'))

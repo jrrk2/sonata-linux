@@ -12,3 +12,8 @@ ocaml-3.07-host/
 linux/flasher/*.o
 linux/sdtest/
 sdtest
+qemu-sonata/build/
+qemu-sonata/config-temp/
+qemu-sonata/config.log
+linux/fpu-stubs/fpustub.o
+linux/fpu-stubs/libgcc.a

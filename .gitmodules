@@ -40,3 +40,6 @@
 [submodule "opensbi-xip"]
 	path = opensbi-xip
 	url = git@github.com:jrrk2/opensbi.git
+[submodule "qemu-sonata/qemu-src"]
+	path = qemu-sonata/qemu-src
+	url = git@github.com:jrrk2/qemu.git
