@@ -6,7 +6,7 @@
 	url = git@github.com:jrrk2/linux-on-litex-vexriscv.git
 [submodule "litex"]
 	path = litex
-	url = https://github.com/enjoy-digital/litex.git
+	url = git@github.com:jrrk2/litex.git
 [submodule "litex-boards"]
 	path = litex-boards
 	url = git@github.com:jrrk2/litex-boards.git
