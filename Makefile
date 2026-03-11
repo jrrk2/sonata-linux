@@ -338,9 +338,9 @@ bitstream:
 	cd $(LITEX_LINUX) && \
 		PYTHONPATH=$(LITEX):$(LITEX_BOARDS):$(MIGEN):$(LITESPI):$(LITESDCARD):$(LITEDRAM):$(VEXRISCV_SMP) \
 		python3 make.py --board=sonata \
-			--cpu-count=1 --with-privileged-debug --jtag-tap --wishbone-force-32b \
-			--icache-size=65536 --icache-ways=16 --dcache-size=65536 --dcache-ways=16 \
-			--build
+			--cpu-count=2 --with-privileged-debug --jtag-tap --wishbone-force-32b \
+			--icache-size=65536 --icache-ways=16 --dcache-size=16384 --dcache-ways=4 \
+			--with-fpu --cpu-per-fpu 2 --build
 	@echo "=== Bitstream ready ==="
 	@ls -la $(LITEX_LINUX)/build/sonata/gateware/sonata.bit
 
