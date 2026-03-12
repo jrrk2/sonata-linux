@@ -9,7 +9,7 @@
 
 
         chosen {
-            bootargs = "console=liteuart earlycon=liteuart,0xf0001000 root=/dev/mtdblock0 rootfstype=romfs ro init=/sbin/init panic=5 loglevel=4 clk_ignore_unused";
+            bootargs = "console=liteuart earlycon=liteuart,0xf0001000 root=/dev/mtdblock0 rootfstype=romfs ro rootwait init=/sbin/init-pivot panic=5 loglevel=4 clk_ignore_unused";
         };
 
         sys_clk: clock-50000000 {
@@ -27,7 +27,7 @@
                 device_type = "cpu";
                 compatible = "riscv";
                 riscv,isa-base = "rv32i";
-                riscv,isa-extensions = "a", "d", "f", "i", "m", "zicsr", "zifencei";
+                riscv,isa-extensions = "a", "c", "d", "f", "i", "m", "zicntr", "zicsr", "zifencei";
                 mmu-type = "riscv,sv32";
                 reg = <0>;
                 clock-frequency = <50000000>;
@@ -62,7 +62,7 @@
                 device_type = "cpu";
                 compatible = "riscv";
                 riscv,isa-base = "rv32i";
-                riscv,isa-extensions = "a", "d", "f", "i", "m", "zicsr", "zifencei";
+                riscv,isa-extensions = "a", "c", "d", "f", "i", "m", "zicntr", "zicsr", "zifencei";
                 mmu-type = "riscv,sv32";
                 reg = <1>;
                 clock-frequency = <50000000>;
@@ -165,7 +165,7 @@
 
             flash@2700000 {
                 compatible = "mtd-rom";
-                reg = <0x02700000 0x900000>;
+                reg = <0x02700000 0x1900000>;
                 bank-width = <1>;
                 #address-cells = <1>;
                 #size-cells = <1>;
@@ -174,7 +174,7 @@
 
                 rootfs@0 {
                     label = "rootfs";
-                    reg = <0x0 0x900000>;
+                    reg = <0x0 0x1900000>;
                 };
             };
 

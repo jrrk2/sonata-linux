@@ -98,8 +98,8 @@
 /* SPI flash commands */
 #define CMD_WRITE_ENABLE  0x06
 #define CMD_READ_STATUS   0x05
-#define CMD_PAGE_PROGRAM  0x02
-#define CMD_SECTOR_ERASE  0xD8
+#define CMD_PAGE_PROGRAM  0x12   /* 4-byte address variant */
+#define CMD_SECTOR_ERASE  0xDC   /* 4-byte address variant */
 
 /* ═══════════════════════════════════════════════════════════════════════
  * Register I/O
@@ -353,15 +353,16 @@ static int spi_read_status(uint32_t *status)
 
 static int spi_sector_erase(uint32_t addr)
 {
-	uint8_t tx[4] = {
+	uint8_t tx[5] = {
 		CMD_SECTOR_ERASE,
+		(addr >> 24) & 0xFF,
 		(addr >> 16) & 0xFF,
 		(addr >> 8) & 0xFF,
 		addr & 0xFF
 	};
-	uint8_t rx[4];
+	uint8_t rx[5];
 
-	return spi_transfer_cmd(tx, rx, 4);
+	return spi_transfer_cmd(tx, rx, 5);
 }
 
 static int spi_page_program(uint32_t addr, const uint8_t *data, int len)
@@ -372,8 +373,9 @@ static int spi_page_program(uint32_t addr, const uint8_t *data, int len)
 	spi_set_config(8, 1, 1);
 	reg_write(SPI_MASTER_CS, 1);
 
-	/* Command + 3-byte address */
+	/* Command + 4-byte address */
 	if (spi_transfer_byte(CMD_PAGE_PROGRAM, &dummy) < 0) goto fail;
+	if (spi_transfer_byte((addr >> 24) & 0xFF, &dummy) < 0) goto fail;
 	if (spi_transfer_byte((addr >> 16) & 0xFF, &dummy) < 0) goto fail;
 	if (spi_transfer_byte((addr >> 8) & 0xFF, &dummy) < 0) goto fail;
 	if (spi_transfer_byte(addr & 0xFF, &dummy) < 0) goto fail;
@@ -832,8 +834,8 @@ static void __attribute__((noreturn)) boot_opensbi(void)
 /* 4KB read buffer */
 static uint8_t chunk_buf[4096] __attribute__((aligned(4)));
 
-/* Per-sector dirty flags (64KB sectors; 256 covers up to 16MB) */
-#define MAX_SECTORS 256
+/* Per-sector dirty flags (64KB sectors; 512 covers up to 32MB) */
+#define MAX_SECTORS 512
 static uint8_t dirty[MAX_SECTORS];
 
 /*
