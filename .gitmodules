@@ -15,7 +15,7 @@
 	url = https://git.m-labs.hk/M-Labs/migen.git
 [submodule "litespi"]
 	path = litespi
-	url = https://github.com/litex-hub/litespi.git
+	url = git@github.com:jrrk2/litespi.git
 [submodule "litesdcard"]
 	path = litesdcard
 	url = https://github.com/enjoy-digital/litesdcard.git
