@@ -4,7 +4,7 @@
 #
 ################################################################################
 
-TCC_VERSION = a0f7f54654967aa58df6eb9ae8d074e950d51752
+TCC_VERSION = f7e187ef8084d49fd458a5ecba54868cce24f62c
 TCC_SITE = https://github.com/jrrk2/tinycc.git
 TCC_SITE_METHOD = git
 TCC_LICENSE = LGPL-2.1+
@@ -17,45 +17,46 @@ define TCC_CONFIGURE_CMDS
 	cd $(@D) && ./configure \
 		--prefix=/usr \
 		--cpu=riscv32 \
+		--targetos=Linux \
 		--cross-prefix=$(TARGET_CROSS) \
-		--cc="$(TARGET_CC)" \
-		--ar="$(TARGET_AR)" \
+		--config-musl \
+		--elfinterp=/lib/ld-musl-riscv32.so.1 \
+		--crtprefix=/usr/lib \
+		--sysincludepaths=/usr/include \
+		--libpaths=/usr/lib/tcc:/usr/lib \
+		--with-libgcc \
 		--extra-cflags="$(TARGET_CFLAGS)"
+	$(SED) 's|"libgcc_s.so.1"|"/usr/lib/libgcc.a"|' $(@D)/config.h
 endef
 
+# Path to the cross-compiler's libgcc.a (for target installation)
+TCC_LIBGCC := $(dir $(shell $(TARGET_CC) -print-libgcc-file-name))libgcc.a
+
 define TCC_BUILD_CMDS
-	$(MAKE) -C $(@D)
+	# c2str.exe is a build-time code generator (converts tccdefs.h to C strings).
+	# It must run on the host, so build it with the host compiler before cross-make.
+	$(HOSTCC) -DC2STR $(@D)/conftest.c -o $(@D)/c2str.exe
+	# riscv32-libtcc1-usegcc=yes: build libtcc1.a with cross-gcc instead of tcc
+	# (the just-built tcc is a riscv32 binary that can't run on the build host)
+	$(MAKE) -C $(@D) riscv32-libtcc1-usegcc=yes
 endef
 
 define TCC_INSTALL_TARGET_CMDS
-	# Install tcc binary
 	$(INSTALL) -D -m 0755 $(@D)/tcc $(TARGET_DIR)/usr/bin/tcc
-	# Install tcc runtime library
 	$(INSTALL) -D -m 0644 $(@D)/libtcc1.a $(TARGET_DIR)/usr/lib/tcc/libtcc1.a
-	# Install tcc internal headers
-	mkdir -p $(TARGET_DIR)/usr/lib/tcc/include
-	cp $(@D)/include/*.h $(TARGET_DIR)/usr/lib/tcc/include/
-	# Install musl C headers from sysroot so tcc can find system headers
-	mkdir -p $(TARGET_DIR)/usr/include
+	$(INSTALL) -d $(TARGET_DIR)/usr/lib/tcc/include
+	cp -a $(@D)/include/*.h $(TARGET_DIR)/usr/lib/tcc/include/
+	# Install musl C library development files needed by tcc
+	$(INSTALL) -d $(TARGET_DIR)/usr/include
 	cp -a $(STAGING_DIR)/usr/include/* $(TARGET_DIR)/usr/include/
-	# Install CRT files from sysroot so tcc can link executables
-	for f in crt1.o crti.o crtn.o; do \
-		if [ -f $(STAGING_DIR)/usr/lib/$$f ]; then \
-			$(INSTALL) -D -m 0644 $(STAGING_DIR)/usr/lib/$$f \
-				$(TARGET_DIR)/usr/lib/$$f; \
-		fi; \
-	done
-	# Install musl stub libraries (empty archives that satisfy -lm etc.)
-	for f in libm.a libdl.a libpthread.a librt.a libcrypt.a libresolv.a libxnet.a libutil.a; do \
-		if [ -f $(STAGING_DIR)/usr/lib/$$f ]; then \
-			$(INSTALL) -D -m 0644 $(STAGING_DIR)/usr/lib/$$f \
-				$(TARGET_DIR)/usr/lib/$$f; \
-		fi; \
-	done
-	# Install libgcc.a (soft-float runtime: __floatsidf, __adddf3, etc.)
-	$(INSTALL) -D -m 0644 \
-		$(STAGING_DIR)/../host/lib/gcc/$(GNU_TARGET_NAME)/*/libgcc.a \
-		$(TARGET_DIR)/usr/lib/libgcc.a
+	# Install CRT files for linking
+	$(INSTALL) -D -m 0644 $(STAGING_DIR)/lib/crt1.o $(TARGET_DIR)/usr/lib/crt1.o
+	$(INSTALL) -D -m 0644 $(STAGING_DIR)/lib/crti.o $(TARGET_DIR)/usr/lib/crti.o
+	$(INSTALL) -D -m 0644 $(STAGING_DIR)/lib/crtn.o $(TARGET_DIR)/usr/lib/crtn.o
+	# Install libc.a for static linking (libc.so already in /lib)
+	$(INSTALL) -D -m 0644 $(STAGING_DIR)/lib/libc.a $(TARGET_DIR)/usr/lib/libc.a
+	# Install libgcc.a (provides __divdi3, __extenddftf2, etc. needed by musl)
+	$(INSTALL) -D -m 0644 $(TCC_LIBGCC) $(TARGET_DIR)/usr/lib/libgcc.a
 endef
 
 $(eval $(generic-package))
