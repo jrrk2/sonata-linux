@@ -163,6 +163,12 @@ setup-buildroot:
 	@ln -sf $$(which gmktemp)   $(TOP)/.host-tools/mktemp
 	@ln -sf $$(which greadlink) $(TOP)/.host-tools/readlink
 	@ln -sf $$(which gfind)     $(TOP)/.host-tools/find
+	@# cpp wrapper: /usr/bin/cpp (standalone Clang preprocessor) fails on macOS
+	@#   SDK AvailabilityInternal.h (__has_builtin not defined in standalone mode).
+	@#   Use GCC's preprocessor instead so configure header checks work.
+	@test -x $(TOP)/.host-tools/cpp || { \
+		printf '#!/bin/bash\nexec '"$$(which gcc)"' -E "$$@"\n' \
+			> $(TOP)/.host-tools/cpp && chmod +x $(TOP)/.host-tools/cpp; }
 	@# ld wrapper: strip ELF-only flags (--version-script, --hash-style)
 	@test -x $(TOP)/.host-tools/ld || { \
 		printf '#!/bin/bash\nargs=()\nfor arg in "$$@"; do\n  case "$$arg" in\n    --version-script=*|--hash-style=*) ;;\n    *) args+=("$$arg") ;;\n  esac\ndone\nexec /opt/local/bin/ld "$${args[@]}"\n' \
@@ -189,8 +195,40 @@ setup-buildroot:
 	cd $(BUILDROOT) && \
 		$(MAKE) BR2_EXTERNAL="$(LITEX_LINUX)/buildroot:$(BR2_EXT)" sonata_defconfig && \
 		PATH="$(TOP)/.host-tools:$$PATH" \
-		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/ -include $(BR_OUTPUT)/host/include/macos-compat.h" -j$$(nproc)
+		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/" -j$$(nproc)
 	@echo "=== Buildroot complete ==="
+	@# tcc dev files: buildroot's target-finalize removes /usr/include, .a and .o
+	@# files from target/.  Reinstall them so tcc can compile on-device.
+	@if [ -d $(BR_OUTPUT)/build/tcc-* ]; then \
+		TCC_BUILD=$$(echo $(BR_OUTPUT)/build/tcc-*); \
+		SYSROOT=$(BR_OUTPUT)/host/riscv32-buildroot-linux-musl/sysroot; \
+		install -D -m 0644 $$TCC_BUILD/libtcc1.a $(BR_TARGET)/usr/lib/tcc/libtcc1.a; \
+		mkdir -p $(BR_TARGET)/usr/lib/tcc/include; \
+		cp $$TCC_BUILD/include/*.h $(BR_TARGET)/usr/lib/tcc/include/; \
+		mkdir -p $(BR_TARGET)/usr/include; \
+		cp -a $$SYSROOT/usr/include/*.h $(BR_TARGET)/usr/include/; \
+		for d in arpa asm asm-generic bits linux net netinet netpacket sys; do \
+			test -d $$SYSROOT/usr/include/$$d && \
+				cp -a $$SYSROOT/usr/include/$$d $(BR_TARGET)/usr/include/; \
+		done; \
+		for f in crt1.o crti.o crtn.o; do \
+			test -f $$SYSROOT/lib/$$f && \
+				install -D -m 0644 $$SYSROOT/lib/$$f $(BR_TARGET)/usr/lib/$$f; \
+		done; \
+		for f in libc.a libm.a libdl.a libpthread.a librt.a libcrypt.a libresolv.a libxnet.a libutil.a; do \
+			test -f $$SYSROOT/lib/$$f && \
+				install -D -m 0644 $$SYSROOT/lib/$$f $(BR_TARGET)/usr/lib/$$f; \
+		done; \
+		cp $$(ls $(BR_OUTPUT)/host/lib/gcc/riscv32-buildroot-linux-musl/*/libgcc.a) \
+			$(BR_TARGET)/usr/lib/libgcc.a; \
+		mkdir -p $(BR_TARGET)/usr/lib/riscv32-linux-gnu; \
+		for f in crt1.o crti.o crtn.o libc.a libm.a libdl.a libpthread.a \
+			librt.a libcrypt.a libresolv.a libgcc.a; do \
+			test -f $(BR_TARGET)/usr/lib/$$f && \
+				ln -sf ../$$f $(BR_TARGET)/usr/lib/riscv32-linux-gnu/$$f; \
+		done; \
+		echo "tcc dev files installed to target"; \
+	fi
 	@echo "Toolchain: $(CROSS)gcc"
 	@echo "Target dir: $(BR_TARGET)"
 
@@ -272,7 +310,9 @@ $(OUT)/boot.json: | $(OUT)
 
 rootfs: $(ROOTFS_ROMFS)
 
-$(ROOTFS_ROMFS): | $(OUT)
+# Rebuild rootfs when buildroot target changes (target-finalize touches
+# target/usr) or when the kernel is rebuilt (modules may have changed).
+$(ROOTFS_ROMFS): $(wildcard $(BR_TARGET)/usr) $(wildcard $(XIPIMAGE)) | $(OUT)
 	@echo "=== Generating rootfs.romfs from buildroot target ==="
 	@test -d $(BR_TARGET) || { echo "ERROR: run 'make setup-buildroot' first"; exit 1; }
 	@# Install kernel modules into rootfs
@@ -280,7 +320,7 @@ $(ROOTFS_ROMFS): | $(OUT)
 	find $(LINUX_SRC) -name '*.ko' -exec cp {} $(BR_TARGET)/lib/modules/ \;
 	@echo "--- Kernel modules ---"
 	@ls $(BR_TARGET)/lib/modules/*.ko 2>/dev/null || echo "  (none)"
-	genromfs -d $(BR_TARGET) -f $@ -V rootfs
+	ulimit -n 4096 && genromfs -d $(BR_TARGET) -f $@ -V rootfs
 	@echo "=== rootfs.romfs ready: $$(du -h $@ | cut -f1) ==="
 
 # ── Flash image ───────────────────────────────────────────────────────
