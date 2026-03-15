@@ -141,7 +141,7 @@ setup-buildroot:
 	@echo "=== Building buildroot (toolchain + kernel + rootfs) ==="
 	@# macOS fixes for buildroot
 	@# 1. /bin/true doesn't exist (SIP makes /bin read-only)
-	sed -i.bak 's|/bin/true|/usr/bin/true|g' \
+	sed -i.bak 's|=/bin/true|=/usr/bin/true|g' \
 		$(BUILDROOT)/package/autoconf/autoconf.mk \
 		$(BUILDROOT)/package/pkg-autotools.mk
 	@# 2. program_invocation_short_name is glibc-only
