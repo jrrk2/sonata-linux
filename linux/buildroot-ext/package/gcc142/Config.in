@@ -1,8 +1,0 @@
-config BR2_PACKAGE_GCC142
-	bool "gcc142"
-	help
-	  GCC 1.42 with RV32 backend - a minimal C compiler that generates
-	  RISC-V assembly. Uses pre-generated insn-* files from the host
-	  build to avoid needing to run generator programs.
-
-	  Installs cc1, cpp, and gcc driver for on-target compilation.

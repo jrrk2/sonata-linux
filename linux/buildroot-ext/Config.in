@@ -1,3 +1,0 @@
-source "$BR2_EXTERNAL_SONATALINUX_PATH/package/tcc/Config.in"
-source "$BR2_EXTERNAL_SONATALINUX_PATH/package/gcc142/Config.in"
-source "$BR2_EXTERNAL_SONATALINUX_PATH/package/ocaml3/Config.in"
