@@ -1,27 +1,29 @@
 # sonata-linux — Top-level build for Linux on Sonata FPGA
 #
 # Submodules:
+#   buildroot/                Fork of buildroot with all custom packages and config
+#   linux-xip/                XIP Linux kernel (jrrk2/linux fork)
+#   opensbi-xip/              OpenSBI firmware (jrrk2/opensbi fork)
 #   sonata-system/            FPGA RTL (CHERIoT Ibex)
-#   linux-on-litex-vexriscv/  LiteX Linux orchestrator (boards.py, patches)
+#   linux-on-litex-vexriscv/  LiteX Python scripts (bitstream build only)
 #   litex/, litex-boards/     LiteX SoC framework + board definitions
 #   migen/                    Migen HDL (LiteX dependency)
 #   litespi/, litesdcard/     SPI flash + SD card controllers
 #   litedram/                 DRAM controller (HyperRAM)
 #   pythondata-cpu-vexriscv-smp/  VexRiscv SMP CPU verilog
-#   pythondata-software-*/    Picolibc + compiler-rt (BIOS dependencies)
-#   buildroot/                Cross toolchain + rootfs + kernel source
 #
 # Usage:
-#   make setup      First-time: build buildroot toolchain, extract kernel+opensbi
+#   make setup      First-time: build buildroot toolchain and rootfs
 #   make            Build all flash + SD card binaries
 #   make bitstream  Build FPGA bitstream (requires Vivado)
 #   make sdcard     Populate SD card directory
 #   make clean      Remove build artifacts
 #
 # Prerequisites:
-#   - Xilinx Vivado 2022.2+ (for bitstream only)
+#   - macOS: brew install gsed gcp gfind coreutils gcc (GNU tools)
 #   - dtc (device-tree-compiler)
 #   - Standard build tools (gcc, make, etc.)
+#   - Xilinx Vivado 2022.2+ (for bitstream only)
 
 SHELL := /bin/bash
 
@@ -44,8 +46,6 @@ VEXRISCV_SMP := $(TOP)/pythondata-cpu-vexriscv-smp
 LINUX_SRC    := $(TOP)/linux-xip
 OPENSBI_SRC  := $(TOP)/opensbi-xip
 
-# Buildroot output — 'make setup' builds buildroot using the buildroot submodule
-# with the linux-on-litex-vexriscv overlay (patches, configs).
 BR_OUTPUT    := $(BUILDROOT)/output
 CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 
@@ -53,7 +53,6 @@ CROSS        := $(BR_OUTPUT)/host/bin/riscv32-buildroot-linux-musl-
 CONFIG_DIR   := $(TOP)/linux/config
 DTS_DIR      := $(TOP)/linux/dts
 SDCARD_SRC   := $(TOP)/linux/sdcard
-BR2_EXT      := $(TOP)/linux/buildroot-ext
 
 # Output
 OUT          := $(TOP)/out
@@ -138,23 +137,8 @@ setup: setup-buildroot setup-kernel setup-opensbi
 	@echo "Now run: make"
 
 setup-buildroot:
-	@echo "=== Building buildroot (toolchain + kernel + rootfs) ==="
-	@# macOS fixes for buildroot
-	@# 1. /bin/true doesn't exist (SIP makes /bin read-only)
-	sed -i.bak 's|=/bin/true|=/usr/bin/true|g' \
-		$(BUILDROOT)/package/autoconf/autoconf.mk \
-		$(BUILDROOT)/package/pkg-autotools.mk
-	@# 2. program_invocation_short_name is glibc-only
-	@grep -q '__APPLE__' $(BUILDROOT)/toolchain/toolchain-wrapper.c || \
-		perl -i.bak -0pe \
-		's{(#include <stdbool.h>)}{$$1\n\n#ifdef __APPLE__\nstatic const char *_get_progname(void) { return getprogname(); }\n#define program_invocation_short_name _get_progname()\n#endif}' \
-		$(BUILDROOT)/toolchain/toolchain-wrapper.c
-	@# 3. Apple ld doesn't support -s or --hash-style (ELF-only flags)
-	sed -i.bak 's/-s -Wl,--hash-style=[^ ]*//' \
-		$(BUILDROOT)/toolchain/toolchain-wrapper.mk
-	@# 4. GCC 15 defaults to C23 where () means (void) — old code needs gnu17
-	@#    Set via HOSTCC so it applies even when packages override CFLAGS
-	@# 5. GNU coreutils + ld wrapper for macOS
+	@echo "=== Building buildroot (toolchain + rootfs) ==="
+	@# macOS: GNU coreutils wrappers (macOS ships BSD tools that lack some flags)
 	@mkdir -p $(TOP)/.host-tools
 	@ln -sf $$(which gsed)      $(TOP)/.host-tools/sed
 	@ln -sf $$(which gcp)       $(TOP)/.host-tools/cp
@@ -163,37 +147,26 @@ setup-buildroot:
 	@ln -sf $$(which gmktemp)   $(TOP)/.host-tools/mktemp
 	@ln -sf $$(which greadlink) $(TOP)/.host-tools/readlink
 	@ln -sf $$(which gfind)     $(TOP)/.host-tools/find
-	@# cpp wrapper: /usr/bin/cpp (standalone Clang preprocessor) fails on macOS
-	@#   SDK AvailabilityInternal.h (__has_builtin not defined in standalone mode).
-	@#   Use GCC's preprocessor instead so configure header checks work.
+	@# cpp wrapper: use GCC preprocessor instead of standalone Clang cpp
 	@test -x $(TOP)/.host-tools/cpp || { \
 		printf '#!/bin/bash\nexec '"$$(which gcc)"' -E "$$@"\n' \
 			> $(TOP)/.host-tools/cpp && chmod +x $(TOP)/.host-tools/cpp; }
-	@# ld wrapper: strip ELF-only flags (--version-script, --hash-style)
+	@# ld wrapper: strip ELF-only flags unsupported by Apple ld
 	@test -x $(TOP)/.host-tools/ld || { \
 		printf '#!/bin/bash\nargs=()\nfor arg in "$$@"; do\n  case "$$arg" in\n    --version-script=*|--hash-style=*) ;;\n    *) args+=("$$arg") ;;\n  esac\ndone\nexec /opt/local/bin/ld "$${args[@]}"\n' \
 			> $(TOP)/.host-tools/ld && chmod +x $(TOP)/.host-tools/ld; }
-	@# 6. host-kmod is not needed (CONFIG_MODULES=n) but linux
-	@#    unconditionally depends on it; remove from both Config.in and linux.mk
-	@#    to avoid building kmod (which has Linux-only deps: byteswap.h, etc.)
-	sed -i.bak '/select BR2_PACKAGE_HOST_KMOD/d' \
-		$(BUILDROOT)/linux/Config.in
-	sed -i.bak '/host-kmod/d' \
-		$(BUILDROOT)/linux/linux.mk
-	@# 7. macOS lacks <elf.h> and <byteswap.h> — provide shims
+	@# macOS lacks <elf.h> and <byteswap.h> — provide shims in host/include
 	@mkdir -p $(BR_OUTPUT)/host/include
 	@cp -n $(BR_OUTPUT)/host/riscv32-buildroot-linux-musl/sysroot/usr/include/elf.h \
 		$(BR_OUTPUT)/host/include/elf.h 2>/dev/null || true
 	@test -f $(BR_OUTPUT)/host/include/byteswap.h || \
 		printf '#ifndef _BYTESWAP_H\n#define _BYTESWAP_H\n#include <stdint.h>\nstatic inline uint16_t __bswap_16(uint16_t x){return x<<8|x>>8;}\nstatic inline uint32_t __bswap_32(uint32_t x){return x>>24|(x>>8&0xff00)|(x<<8&0xff0000)|x<<24;}\nstatic inline uint64_t __bswap_64(uint64_t x){return((__bswap_32(x)+0ULL)<<32)|__bswap_32(x>>32);}\n#define bswap_16(x) __bswap_16(x)\n#define bswap_32(x) __bswap_32(x)\n#define bswap_64(x) __bswap_64(x)\n#endif\n' \
 			> $(BR_OUTPUT)/host/include/byteswap.h
-	@# 8. macOS uuid_t (unsigned char[16]) conflicts with kernel's uuid_t (struct)
-	@#    Pre-include macOS headers then redirect uuid_t to avoid collision
 	@test -f $(BR_OUTPUT)/host/include/macos-compat.h || \
 		printf '#ifdef __APPLE__\n#include <unistd.h>\n#define uuid_t __kernel_uuid_t\n#endif\n' \
 			> $(BR_OUTPUT)/host/include/macos-compat.h
 	cd $(BUILDROOT) && \
-		$(MAKE) BR2_EXTERNAL="$(LITEX_LINUX)/buildroot:$(BR2_EXT)" sonata_defconfig && \
+		$(MAKE) sonata_defconfig && \
 		PATH="$(TOP)/.host-tools:$$PATH" \
 		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/" -j$$(nproc)
 	@echo "=== Buildroot complete ==="

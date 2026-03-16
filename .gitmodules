@@ -33,7 +33,7 @@
 	url = https://github.com/litex-hub/pythondata-software-compiler_rt.git
 [submodule "buildroot"]
 	path = buildroot
-	url = https://github.com/buildroot/buildroot.git
+	url = git@github.com:jrrk2/buildroot.git
 [submodule "linux-xip"]
 	path = linux-xip
 	url = git@github.com:jrrk2/linux.git
