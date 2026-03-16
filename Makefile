@@ -170,38 +170,6 @@ setup-buildroot:
 		PATH="$(TOP)/.host-tools:$$PATH" \
 		$(MAKE) HOSTCC="$$(which gcc) -std=gnu17 -B$(TOP)/.host-tools/" -j$$(nproc)
 	@echo "=== Buildroot complete ==="
-	@# tcc dev files: buildroot's target-finalize removes /usr/include, .a and .o
-	@# files from target/.  Reinstall them so tcc can compile on-device.
-	@if [ -d $(BR_OUTPUT)/build/tcc-* ]; then \
-		TCC_BUILD=$$(echo $(BR_OUTPUT)/build/tcc-*); \
-		SYSROOT=$(BR_OUTPUT)/host/riscv32-buildroot-linux-musl/sysroot; \
-		install -D -m 0644 $$TCC_BUILD/libtcc1.a $(BR_TARGET)/usr/lib/tcc/libtcc1.a; \
-		mkdir -p $(BR_TARGET)/usr/lib/tcc/include; \
-		cp $$TCC_BUILD/include/*.h $(BR_TARGET)/usr/lib/tcc/include/; \
-		mkdir -p $(BR_TARGET)/usr/include; \
-		cp -a $$SYSROOT/usr/include/*.h $(BR_TARGET)/usr/include/; \
-		for d in arpa asm asm-generic bits linux net netinet netpacket sys; do \
-			test -d $$SYSROOT/usr/include/$$d && \
-				cp -a $$SYSROOT/usr/include/$$d $(BR_TARGET)/usr/include/; \
-		done; \
-		for f in crt1.o crti.o crtn.o; do \
-			test -f $$SYSROOT/lib/$$f && \
-				install -D -m 0644 $$SYSROOT/lib/$$f $(BR_TARGET)/usr/lib/$$f; \
-		done; \
-		for f in libc.a libm.a libdl.a libpthread.a librt.a libcrypt.a libresolv.a libxnet.a libutil.a; do \
-			test -f $$SYSROOT/lib/$$f && \
-				install -D -m 0644 $$SYSROOT/lib/$$f $(BR_TARGET)/usr/lib/$$f; \
-		done; \
-		cp $$(ls $(BR_OUTPUT)/host/lib/gcc/riscv32-buildroot-linux-musl/*/libgcc.a) \
-			$(BR_TARGET)/usr/lib/libgcc.a; \
-		mkdir -p $(BR_TARGET)/usr/lib/riscv32-linux-gnu; \
-		for f in crt1.o crti.o crtn.o libc.a libm.a libdl.a libpthread.a \
-			librt.a libcrypt.a libresolv.a libgcc.a; do \
-			test -f $(BR_TARGET)/usr/lib/$$f && \
-				ln -sf ../$$f $(BR_TARGET)/usr/lib/riscv32-linux-gnu/$$f; \
-		done; \
-		echo "tcc dev files installed to target"; \
-	fi
 	@echo "Toolchain: $(CROSS)gcc"
 	@echo "Target dir: $(BR_TARGET)"
 
