@@ -37,7 +37,7 @@ cp -v "$PATCH_DIR/include/hw/riscv/sonata.h" \
 # Remove any existing SONATA config block from Kconfig, then add new one
 sed -i '/^config SONATA$/,/^$/d' "$QEMU_DIR/hw/riscv/Kconfig"
 if ! grep -q "config SONATA" "$QEMU_DIR/hw/riscv/Kconfig"; then
-    sed -i 's/^# RISC-V machines in alphabetical order/config SONATA\n    bool\n    select RISCV_ACLINT\n    select SIFIVE_PLIC\n    select UNIMP\n\n# RISC-V machines in alphabetical order/' \
+    sed -i 's/^# RISC-V machines in alphabetical order/config SONATA\n    bool\n    select RISCV_ACLINT\n    select SIFIVE_PLIC\n    select UNIMP\n    select VIRTIO_MMIO\n\n# RISC-V machines in alphabetical order/' \
         "$QEMU_DIR/hw/riscv/Kconfig"
     echo "  Updated hw/riscv/Kconfig"
 fi

@@ -25,6 +25,7 @@
 #include "chardev/char-fe.h"
 #include "hw/irq.h"
 #include "sysemu/sysemu.h"
+#include "hw/virtio/virtio-mmio.h"
 #include "target/riscv/cpu.h"
 #include "target/riscv/cpu-qom.h"
 
@@ -375,6 +376,17 @@ static void sonata_soc_realize(DeviceState *dev_soc, Error **errp)
 
     create_unimplemented_device("sonata.mmc",     0xf0003000, 0x200);
     create_unimplemented_device("sonata.leds",    0xf0002800, 0x100);
+    create_unimplemented_device("sonata.spi-eth", 0x80302000, 0x2000);
+
+    /* ── virtio-mmio transports (for swap, block devices, etc.) ──── */
+    for (int i = 0; i < SONATA_VIRTIO_COUNT; i++) {
+        hwaddr addr = sonata_memmap[SONATA_DEV_VIRTIO][0]
+                      + i * sonata_memmap[SONATA_DEV_VIRTIO][1];
+        int irq = SONATA_VIRTIO_IRQ_BASE + i;
+
+        sysbus_create_simple("virtio-mmio", addr,
+                             qdev_get_gpio_in(s->plic, irq));
+    }
 }
 
 static void sonata_soc_class_init(ObjectClass *oc, void *data)

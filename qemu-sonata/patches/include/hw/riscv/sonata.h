@@ -62,7 +62,11 @@ typedef enum {
     SONATA_DEV_SOC_CTRL,    /* LiteX SoC ctrl:  0xf0000000, 256 B  */
     SONATA_DEV_SRAM,        /* SRAM:            0x10000000,  6 KB  */
     SONATA_DEV_SWITCHES,    /* Switches CSR:    0xf0004800, 256 B  */
+    SONATA_DEV_VIRTIO,      /* virtio-mmio:     0xf0100000, 4x 4KB */
 } SonataDevices;
+
+#define SONATA_VIRTIO_COUNT       4   /* number of virtio-mmio transports */
+#define SONATA_VIRTIO_IRQ_BASE    8   /* PLIC IRQs 8..11 */
 
 static const hwaddr sonata_memmap[][2] = {
     /*                              base          size   */
@@ -73,7 +77,8 @@ static const hwaddr sonata_memmap[][2] = {
     [SONATA_DEV_PLIC]     = { 0xf0c00000,   0x400000 }, /*   4 MB */
     [SONATA_DEV_SOC_CTRL] = { 0xf0000000,      0x100 }, /* 256  B */
     [SONATA_DEV_SRAM]     = { 0x10000000,     0x1800 }, /*   6 KB */
-    [SONATA_DEV_SWITCHES] = { 0xf0004800,      0x100 }, /* 256  B */
+    [SONATA_DEV_SWITCHES] = { 0xf0004000,      0x100 }, /* 256  B */
+    [SONATA_DEV_VIRTIO]   = { 0xf0100000,     0x1000 }, /*   4 KB each */
 };
 
 /* PLIC parameters (match sonata.dts) */
