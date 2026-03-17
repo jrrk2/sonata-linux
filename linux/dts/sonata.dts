@@ -226,6 +226,34 @@
                 status = "okay";
             };
 
+            virtio0: virtio_mmio@f0100000 {
+                compatible = "virtio,mmio";
+                reg = <0xf0100000 0x1000>;
+                interrupts = <8>;
+                status = "okay";
+            };
+
+            virtio1: virtio_mmio@f0101000 {
+                compatible = "virtio,mmio";
+                reg = <0xf0101000 0x1000>;
+                interrupts = <9>;
+                status = "okay";
+            };
+
+            virtio2: virtio_mmio@f0102000 {
+                compatible = "virtio,mmio";
+                reg = <0xf0102000 0x1000>;
+                interrupts = <10>;
+                status = "okay";
+            };
+
+            virtio3: virtio_mmio@f0103000 {
+                compatible = "virtio,mmio";
+                reg = <0xf0103000 0x1000>;
+                interrupts = <11>;
+                status = "okay";
+            };
+
         };
 
         aliases {

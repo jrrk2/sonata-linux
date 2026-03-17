@@ -79,7 +79,7 @@ OPENSBI_FW_JUMP  := $(OPENSBI_SRC)/build/platform/$(OPENSBI_PLATFORM)/firmware/f
 # ── Flash layout ──────────────────────────────────────────────────────
 
 OPENSBI_OFFSET := 0x600000
-DTB_OFFSET     := 0x6FF000
+DTB_OFFSET     := 0x6FE000
 ROOTFS_OFFSET  := 0x700000
 
 # ── Output files ──────────────────────────────────────────────────────
@@ -280,8 +280,8 @@ $(OUT)/flashxip.bin: $(XIPIMAGE) $(OUT)/opensbi-xip.bin $(OUT)/rv32.dtb $(ROOTFS
 	cat $(OUT)/opensbi-xip.bin >> $@
 	truncate -s $$(($(DTB_OFFSET))) $@
 	@DSIZE=$$(wc -c < $(OUT)/rv32.dtb | tr -d ' '); \
-	if [ $$DSIZE -gt 4096 ]; then \
-		echo "ERROR: DTB ($$DSIZE bytes) exceeds 4KB sector"; \
+	if [ $$DSIZE -gt 8192 ]; then \
+		echo "ERROR: DTB ($$DSIZE bytes) exceeds 8KB slot"; \
 		rm -f $@; exit 1; \
 	fi
 	cat $(OUT)/rv32.dtb >> $@
