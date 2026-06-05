@@ -7,15 +7,15 @@
  *
  * Flash layout (base 0x02000000):
  *   +0x000000  xipImage (kernel, XIP)
- *   +0x600000  OpenSBI fw_jump.bin
- *   +0x6FE000  DTB (8KB slot)
- *   +0x700000  rootfs.romfs
+ *   +0x440000  OpenSBI fw_jump.bin
+ *   +0x490000  DTB (8KB slot)
+ *   +0x492000  rootfs.romfs
  *
  * Not executed in QEMU (CPU starts directly at OpenSBI).
  */
 
-#define DTB_FLASH   0x026FE000  /* 0x02000000 + 0x6FE000 */
-#define OPENSBI     0x02600000  /* 0x02000000 + 0x600000 */
+#define DTB_FLASH   0x02490000  /* 0x02000000 + 0x490000 */
+#define OPENSBI     0x02440000  /* 0x02000000 + 0x440000 */
 
         .section .text
         .globl _start

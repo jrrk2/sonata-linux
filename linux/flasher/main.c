@@ -797,9 +797,9 @@ static DISKOPS sd_diskops = {
  * Boot into OpenSBI
  * ═══════════════════════════════════════════════════════════════════════ */
 
-#define OPENSBI_ENTRY    0x02600000   /* OpenSBI entry point in flash (XIP) */
+#define OPENSBI_ENTRY    0x02440000   /* OpenSBI entry point in flash (XIP) */
 #define DTB_LOAD_ADDR    0x40770000
-#define DTB_FLASH_OFFSET 0x6FE000     /* DTB slot (8KB) in flash image */
+#define DTB_FLASH_OFFSET 0x490000     /* DTB slot (8KB) in flash image */
 
 static void __attribute__((noreturn)) boot_opensbi(void)
 {

@@ -172,11 +172,11 @@
                 /* Flash is 32MB at 0x02000000.  physmap-flash rounds the
                  * device size down to a power-of-2 (fls64 in
                  * physmap-core.c:521), so we declare the full 32MB.
-                 * Rootfs starts at offset 0x700000 within the device. */
+                 * Rootfs starts at offset 0x492000 within the device. */
 
-                rootfs@700000 {
+                rootfs@492000 {
                     label = "rootfs";
-                    reg = <0x700000 0x1900000>;
+                    reg = <0x492000 0x1B6E000>;
                 };
             };
 

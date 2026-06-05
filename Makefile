@@ -78,9 +78,9 @@ OPENSBI_FW_JUMP  := $(OPENSBI_SRC)/build/platform/$(OPENSBI_PLATFORM)/firmware/f
 
 # ── Flash layout ──────────────────────────────────────────────────────
 
-OPENSBI_OFFSET := 0x600000
-DTB_OFFSET     := 0x6FE000
-ROOTFS_OFFSET  := 0x700000
+OPENSBI_OFFSET := 0x440000
+DTB_OFFSET     := 0x490000
+ROOTFS_OFFSET  := 0x492000
 
 # ── Output files ──────────────────────────────────────────────────────
 
@@ -218,7 +218,7 @@ $(OPENSBI_FW_JUMP): $(OUT)/rv32.dtb
 	cd $(OPENSBI_SRC) && \
 		$(MAKE) CROSS_COMPILE=$(CROSS) PLATFORM=$(OPENSBI_PLATFORM) \
 			PLATFORM_RISCV_XLEN=32 \
-			FW_TEXT_START=0x02600000 \
+			FW_TEXT_START=0x02440000 \
 			FW_RW_ADDR=0x407F0000 \
 			FW_JUMP_ADDR=0x02000000 \
 			FW_JUMP_FDT_ADDR=0x40770000 \
